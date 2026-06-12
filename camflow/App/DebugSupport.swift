@@ -1,0 +1,588 @@
+#if DEBUG
+import Foundation
+import SwiftData
+import SwiftUI
+import UIKit
+import CryptoKit
+import AVFoundation
+import AVKit
+
+/// Debug-only launch argument support, e.g. from the scheme or simctl:
+///   -initialTab projects     → open on a specific tab
+///   -seedSampleData YES      → insert a demo account, two orgs, projects + photos
+///   -skipAuth YES            → sign in to the first seeded account and skip onboarding
+///   -debugScreen viewer      → open the photo viewer over the tab bar
+///   -debugScreen annotation  → open the annotation editor over the tab bar
+/// `-seedSampleData YES` implies `-skipAuth YES` so screenshot runs land in-app;
+/// pass an explicit `-skipAuth NO` to seed but still go through AuthView.
+enum DebugSupport {
+    static var initialTab: AppTab? {
+        switch UserDefaults.standard.string(forKey: "initialTab") {
+        case "projects": .projects
+        case "team": .team
+        case "more": .more
+        case "home": .home
+        default: nil
+        }
+    }
+
+    static var debugScreen: String? {
+        UserDefaults.standard.string(forKey: "debugScreen")
+    }
+
+    @MainActor
+    static func seedSampleDataIfRequested(context: ModelContext) {
+        guard UserDefaults.standard.bool(forKey: "seedSampleData") else { return }
+
+        let count = (try? context.fetchCount(FetchDescriptor<Project>())) ?? 0
+        guard count == 0 else { return }
+
+        // Demo account + two organizations so the Home switcher has entries.
+        let account = Account(
+            email: "demo@camflow.app",
+            displayName: "Demo User",
+            provider: .email,
+            passwordHash: sha256("password"),
+            colorHex: TagPalette.colors[0]
+        )
+        context.insert(account)
+
+        let orgStore = OrganizationStore(context: context)
+        let primary = orgStore.create(name: "Demo Construction Co.", owner: account)
+        let secondary = orgStore.create(name: "Skyline Renovations", owner: account)
+        let owner = primary.activeMembers.first { $0.role == .owner }
+
+        let labels = (try? context.fetch(FetchDescriptor<ProjectLabel>(sortBy: [SortDescriptor(\.sortOrder)]))) ?? []
+
+        let riverside = Project(
+            name: "Riverside House",
+            address: "Bebek, Beşiktaş, İstanbul",
+            latitude: 41.0773,
+            longitude: 29.0434,
+            label: labels.first
+        )
+        let warehouse = Project(
+            name: "Warehouse Re-roof",
+            address: "İkitelli OSB, Başakşehir, İstanbul",
+            latitude: 41.0931,
+            longitude: 28.7980,
+            label: labels.count > 1 ? labels[1] : nil
+        )
+        context.insert(riverside)
+        context.insert(warehouse)
+        riverside.organization = primary
+        warehouse.organization = primary
+
+        // A project in the second org so switching shows distinct data.
+        let skylineLoft = Project(
+            name: "Skyline Loft Remodel",
+            address: "Karaköy, Beyoğlu, İstanbul",
+            latitude: 41.0256,
+            longitude: 28.9744,
+            label: labels.first
+        )
+        context.insert(skylineLoft)
+        skylineLoft.organization = secondary
+
+        seedSamplePhotos(context: context, riverside: riverside, warehouse: warehouse)
+
+        let memberStore = MemberStore(context: context)
+        let mehmet = memberStore.invite(
+            name: "Mehmet Yılmaz",
+            phoneNumber: "+90 532 111 22 33",
+            title: "Site Foreman",
+            projects: [riverside],
+            organization: primary
+        )
+        let ayse = memberStore.invite(
+            name: "Ayşe Demir",
+            phoneNumber: "+90 533 444 55 66",
+            title: "Electrician",
+            projects: [riverside, warehouse],
+            organization: primary
+        )
+
+        if let owner {
+            seedSampleTasks(context: context, riverside: riverside, owner: owner, mehmet: mehmet, ayse: ayse)
+        }
+    }
+
+    /// Signs the first seeded account in and skips onboarding so simulator runs
+    /// land directly in the app. Triggered by `-skipAuth YES` (or implied by
+    /// `-seedSampleData YES`).
+    @MainActor
+    static func applyAuthSkipIfRequested(session: Session, context: ModelContext) {
+        let defaults = UserDefaults.standard
+        // An explicit `-skipAuth NO` opts out even when `-seedSampleData YES`
+        // would imply it, so seeded accounts can be exercised through AuthView.
+        if defaults.object(forKey: "skipAuth") != nil, !defaults.bool(forKey: "skipAuth") { return }
+        guard defaults.bool(forKey: "skipAuth") || defaults.bool(forKey: "seedSampleData") else { return }
+
+        defaults.set(true, forKey: "hasSeenWelcome")
+        defaults.set(true, forKey: "hasPrimedPermissions")
+
+        if session.currentAccount == nil {
+            let descriptor = FetchDescriptor<Account>(predicate: #Predicate { $0.deletedAt == nil })
+            if let account = (try? context.fetch(descriptor))?.first {
+                session.signIn(account)
+            }
+        }
+
+        // -activeOrgName "<name>" selects the active org through the app's own
+        // Session (so it survives the simulator's preferences cache, unlike an
+        // external `defaults write`).
+        if let name = defaults.string(forKey: "activeOrgName"),
+           let org = session.organizations.first(where: { $0.name == name }) {
+            session.setActiveOrg(org)
+        }
+    }
+
+    private static func sha256(_ value: String) -> String {
+        SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+
+    @MainActor
+    private static func seedSampleTasks(
+        context: ModelContext,
+        riverside: Project,
+        owner: OrgMember,
+        mehmet: OrgMember,
+        ayse: OrgMember
+    ) {
+        let taskStore = TaskStore(context: context)
+
+        let junctionTask = taskStore.create(
+            title: "Fix junction box",
+            note: "Relabel breaker panel and close up the junction in the hallway.",
+            dueDate: Calendar.current.startOfDay(for: .now).addingTimeInterval(86_400 * 2),
+            assignee: ayse,
+            project: riverside
+        )
+        if let evidence = riverside.activePhotos.first {
+            junctionTask.attachedPhotoIDs = [evidence.id]
+        }
+        taskStore.addComment(
+            to: junctionTask,
+            text: "Parts arrived this morning, starting after lunch.",
+            mentionIDs: [],
+            author: ayse
+        )
+        taskStore.addComment(
+            to: junctionTask,
+            text: "@Mehmet Yılmaz can you verify the panel labels tomorrow morning?",
+            mentionIDs: [mehmet.id],
+            author: owner
+        )
+
+        let materialsTask = taskStore.create(
+            title: "Order drywall materials",
+            assignee: mehmet,
+            project: riverside
+        )
+        materialsTask.completedAt = Date.now.addingTimeInterval(-86_400)
+
+        let checklistStore = ChecklistStore(context: context)
+        checklistStore.createTemplate(
+            name: "Roof Inspection",
+            itemTitles: ["Check flashing", "Inspect shingles", "Document drainage", "Photograph penetrations"]
+        )
+        let walkthroughTemplate = checklistStore.createTemplate(
+            name: "Final Walkthrough",
+            itemTitles: ["All outlets working", "Paint touch-ups done", "Site cleaned"]
+        )
+        let walkthrough = checklistStore.create(
+            name: "Final Walkthrough",
+            template: walkthroughTemplate,
+            assignee: mehmet,
+            project: riverside
+        )
+        if let firstItem = walkthrough.sortedItems.first {
+            checklistStore.toggleItem(firstItem)
+        }
+
+        let riversidePhotos = riverside.activePhotos.sorted { $0.capturedAt > $1.capturedAt }
+        if riversidePhotos.count >= 2 {
+            BeforeAfterStore(context: context).create(
+                beforePhotoID: riversidePhotos[1].id,
+                afterPhotoID: riversidePhotos[0].id,
+                layout: .sideBySide,
+                project: riverside
+            )
+        }
+    }
+
+    @MainActor
+    private static func seedSamplePhotos(context: ModelContext, riverside: Project, warehouse: Project) {
+        let samples: [(String, CGFloat, Project?)] = [
+            ("Foundation", 0.08, riverside),
+            ("Framing", 0.35, riverside),
+            ("Electrical", 0.58, riverside),
+            ("Roof Deck", 0.75, warehouse),
+            ("Unassigned", 0.0, nil),
+        ]
+
+        for (offset, (title, hue, project)) in samples.enumerated() {
+            guard let data = makeSampleImage(label: title, hue: hue) else { continue }
+            let id = UUID()
+            let fileName = "\(id.uuidString).jpg"
+            let thumbnailFileName = "\(id.uuidString)_thumb.jpg"
+            guard (try? FileStorage.save(data, named: fileName, in: .photos)) != nil else { continue }
+            if let thumbnail = ImageProcessor.makeThumbnail(from: data) {
+                _ = try? FileStorage.save(thumbnail, named: thumbnailFileName, in: .photos)
+            }
+
+            let photo = Photo(
+                fileName: fileName,
+                thumbnailFileName: thumbnailFileName,
+                capturedAt: Date.now.addingTimeInterval(Double(-offset) * 5400),
+                latitude: project?.latitude.map { $0 + 0.0004 },
+                longitude: project?.longitude.map { $0 - 0.0003 },
+                source: .camera,
+                project: project
+            )
+            photo.id = id
+
+            // First sample arrives pre-annotated so overlay rendering is visible.
+            if offset == 0 {
+                photo.annotationData = AnnotationDocument(shapes: [
+                    AnnotationShape(kind: .arrow, colorHex: "#FF6B35", points: [CGPoint(x: 0.2, y: 0.7), CGPoint(x: 0.45, y: 0.45)]),
+                    AnnotationShape(kind: .rectangle, colorHex: "#E0475B", points: [CGPoint(x: 0.5, y: 0.3), CGPoint(x: 0.8, y: 0.5)]),
+                    AnnotationShape(kind: .text, colorHex: "#F7B32B", points: [CGPoint(x: 0.15, y: 0.12)], text: "Check this junction"),
+                ]).encoded()
+            }
+            context.insert(photo)
+        }
+
+        seedSampleVideo(context: context, project: riverside)
+        seedSampleMeasurement(context: context, project: riverside)
+    }
+
+    /// Seeds one measurement (snapshot photo + two segments) so the Info
+    /// section, detail sheet, and soft delete are verifiable in the simulator,
+    /// where ARKit is unavailable.
+    @MainActor
+    private static func seedSampleMeasurement(context: ModelContext, project: Project) {
+        guard let data = makeSampleImage(label: "Measure", hue: 0.45) else { return }
+        let id = UUID()
+        let fileName = "\(id.uuidString).jpg"
+        let thumbnailFileName = "\(id.uuidString)_thumb.jpg"
+        guard (try? FileStorage.save(data, named: fileName, in: .photos)) != nil else { return }
+        if let thumbnail = ImageProcessor.makeThumbnail(from: data) {
+            _ = try? FileStorage.save(thumbnail, named: thumbnailFileName, in: .photos)
+        }
+
+        let photo = Photo(
+            fileName: fileName,
+            thumbnailFileName: thumbnailFileName,
+            latitude: project.latitude,
+            longitude: project.longitude,
+            source: .camera,
+            project: project
+        )
+        photo.id = id
+        context.insert(photo)
+
+        let segments = [
+            MeasurementSegment(start: SIMD3(0, 0, -1), end: SIMD3(1.24, 0, -1)),
+            MeasurementSegment(start: SIMD3(1.24, 0, -1), end: SIMD3(1.24, 0.82, -1)),
+        ]
+        MeasurementStore(context: context).create(
+            segments: segments,
+            unit: .meters,
+            snapshotPhotoID: photo.id,
+            project: project
+        )
+    }
+
+    /// Generates a short synthetic clip so video surfaces (grid badge, player
+    /// page, share, exclusions) are verifiable in the simulator, where the
+    /// camera doesn't exist. Runs async; the @Query-driven UI picks it up.
+    @MainActor
+    private static func seedSampleVideo(context: ModelContext, project: Project) {
+        Task {
+            guard let tempURL = await Task.detached(operation: { makeSampleVideo() }).value else { return }
+
+            let id = UUID()
+            let fileName = "\(id.uuidString).mov"
+            let thumbnailFileName = "\(id.uuidString)_thumb.jpg"
+
+            let duration = await VideoProcessor.duration(of: tempURL)
+            if let thumbnail = await VideoProcessor.makeThumbnail(forVideoAt: tempURL) {
+                _ = try? FileStorage.save(thumbnail, named: thumbnailFileName, in: .photos)
+            }
+            guard (try? FileStorage.adopt(fileAt: tempURL, named: fileName, in: .photos)) != nil else { return }
+
+            let video = Photo(
+                fileName: fileName,
+                thumbnailFileName: thumbnailFileName,
+                capturedAt: .now,
+                latitude: project.latitude,
+                longitude: project.longitude,
+                source: .camera,
+                mediaType: .video,
+                durationSeconds: duration,
+                project: project
+            )
+            video.id = id
+            context.insert(video)
+        }
+    }
+
+    /// Renders ~3s of animated gradient frames to a temp `.mov` (H.264 960×540).
+    /// Also feeds the `-debugScreen pipcomposite` harness (two hues → two clips).
+    nonisolated static func makeSampleVideo(seconds: Double = 3, fps: Int32 = 24, hueBase: CGFloat = 0.55) -> URL? {
+        let size = CGSize(width: 960, height: 540)
+        let url = FileManager.default.temporaryDirectory.appending(path: "\(UUID().uuidString).mov")
+        guard let writer = try? AVAssetWriter(outputURL: url, fileType: .mov) else { return nil }
+
+        let input = AVAssetWriterInput(mediaType: .video, outputSettings: [
+            AVVideoCodecKey: AVVideoCodecType.h264,
+            AVVideoWidthKey: size.width,
+            AVVideoHeightKey: size.height,
+        ])
+        let adaptor = AVAssetWriterInputPixelBufferAdaptor(
+            assetWriterInput: input,
+            sourcePixelBufferAttributes: [
+                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+                kCVPixelBufferWidthKey as String: size.width,
+                kCVPixelBufferHeightKey as String: size.height,
+            ]
+        )
+        writer.add(input)
+        guard writer.startWriting() else { return nil }
+        writer.startSession(atSourceTime: .zero)
+
+        let frameCount = Int(seconds * Double(fps))
+        for frame in 0..<frameCount {
+            while !input.isReadyForMoreMediaData { usleep(2000) }
+            let progress = CGFloat(frame) / CGFloat(max(frameCount - 1, 1))
+            guard let buffer = makeVideoFrame(size: size, progress: progress, hueBase: hueBase) else { return nil }
+            adaptor.append(buffer, withPresentationTime: CMTime(value: CMTimeValue(frame), timescale: fps))
+        }
+        input.markAsFinished()
+
+        // Debug-only synchronous wait; completion fires on a background queue.
+        let semaphore = DispatchSemaphore(value: 0)
+        writer.finishWriting { semaphore.signal() }
+        semaphore.wait()
+        return writer.status == .completed ? url : nil
+    }
+
+    /// One gradient frame with a dot sweeping across so playback visibly animates.
+    nonisolated private static func makeVideoFrame(size: CGSize, progress: CGFloat, hueBase: CGFloat = 0.55) -> CVPixelBuffer? {
+        var pixelBuffer: CVPixelBuffer?
+        let attrs: [CFString: Any] = [
+            kCVPixelBufferCGImageCompatibilityKey: true,
+            kCVPixelBufferCGBitmapContextCompatibilityKey: true,
+        ]
+        CVPixelBufferCreate(
+            kCFAllocatorDefault, Int(size.width), Int(size.height),
+            kCVPixelFormatType_32BGRA, attrs as CFDictionary, &pixelBuffer
+        )
+        guard let buffer = pixelBuffer else { return nil }
+
+        CVPixelBufferLockBaseAddress(buffer, [])
+        defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
+
+        guard let context = CGContext(
+            data: CVPixelBufferGetBaseAddress(buffer),
+            width: Int(size.width), height: Int(size.height),
+            bitsPerComponent: 8, bytesPerRow: CVPixelBufferGetBytesPerRow(buffer),
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
+        ) else { return nil }
+
+        let hue = hueBase + 0.2 * progress
+        let colors = [
+            UIColor(hue: hue, saturation: 0.6, brightness: 0.85, alpha: 1).cgColor,
+            UIColor(hue: hue, saturation: 0.8, brightness: 0.4, alpha: 1).cgColor,
+        ]
+        if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors as CFArray, locations: nil) {
+            context.drawLinearGradient(
+                gradient, start: .zero,
+                end: CGPoint(x: size.width, y: size.height), options: []
+            )
+        }
+        context.setFillColor(UIColor.white.withAlphaComponent(0.9).cgColor)
+        let x = size.width * (0.1 + 0.8 * progress)
+        context.fillEllipse(in: CGRect(x: x - 28, y: size.height / 2 - 28, width: 56, height: 56))
+        return buffer
+    }
+
+    /// Renders a gradient placeholder image so grids/viewer/annotations can be
+    /// exercised in the simulator, where there is no camera.
+    private static func makeSampleImage(label: String, hue: CGFloat) -> Data? {
+        let size = CGSize(width: 1200, height: 1600)
+        let renderer = UIGraphicsImageRenderer(size: size)
+        let image = renderer.image { ctx in
+            let colors = [
+                UIColor(hue: hue, saturation: 0.55, brightness: 0.85, alpha: 1).cgColor,
+                UIColor(hue: hue, saturation: 0.75, brightness: 0.45, alpha: 1).cgColor,
+            ]
+            if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors as CFArray, locations: nil) {
+                ctx.cgContext.drawLinearGradient(
+                    gradient,
+                    start: .zero,
+                    end: CGPoint(x: size.width, y: size.height),
+                    options: []
+                )
+            }
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: 96, weight: .bold),
+                .foregroundColor: UIColor.white.withAlphaComponent(0.9),
+            ]
+            let text = NSAttributedString(string: label, attributes: attributes)
+            let textSize = text.size()
+            text.draw(at: CGPoint(x: (size.width - textSize.width) / 2, y: (size.height - textSize.height) / 2))
+        }
+        return image.jpegData(compressionQuality: 0.85)
+    }
+}
+
+/// Presents viewer/annotation screens directly for simulator verification,
+/// since tap automation isn't available.
+struct DebugScreenHost: View {
+    let kind: String
+
+    @Query(filter: #Predicate<Photo> { $0.deletedAt == nil }, sort: \Photo.capturedAt, order: .reverse)
+    private var photos: [Photo]
+
+    @Query(filter: #Predicate<ProjectTask> { $0.deletedAt == nil }, sort: \ProjectTask.createdAt)
+    private var tasks: [ProjectTask]
+
+    @Query(filter: #Predicate<Checklist> { $0.deletedAt == nil }, sort: \Checklist.createdAt)
+    private var checklists: [Checklist]
+
+    @Query(filter: #Predicate<Project> { $0.deletedAt == nil }, sort: \Project.name)
+    private var projects: [Project]
+
+    @Query(filter: #Predicate<BeforeAfterPair> { $0.deletedAt == nil }, sort: \BeforeAfterPair.createdAt)
+    private var pairs: [BeforeAfterPair]
+
+    @Query(filter: #Predicate<Measurement> { $0.deletedAt == nil }, sort: \Measurement.createdAt)
+    private var measurements: [Measurement]
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                switch kind {
+                case "annotation":
+                    if let photo = photos.first {
+                        AnnotationEditorView(photo: photo)
+                    }
+                case "share":
+                    ShareOptionsSheet(photos: Array(photos.prefix(1)))
+                case "task":
+                    if let task = tasks.first {
+                        TaskDetailView(task: task)
+                    }
+                case "checklist":
+                    if let checklist = checklists.first {
+                        ChecklistDetailView(checklist: checklist)
+                    }
+                case "report":
+                    if let project = projects.first(where: { !$0.activePhotos.isEmpty }) {
+                        ReportBuilderView(project: project)
+                    }
+                case "reportpdf":
+                    DebugReportPDFView()
+                case "pipcomposite":
+                    DebugPiPCompositeView()
+                case "measurements":
+                    if let measurement = measurements.first {
+                        MeasurementDetailSheet(measurement: measurement)
+                    }
+                case "beforeafter":
+                    if let pair = pairs.first, let project = pair.project {
+                        BeforeAfterComposerView(project: project, existingPair: pair)
+                    }
+                default:
+                    PhotoViewerView(photos: photos)
+                }
+            }
+            .navigationDestination(for: Photo.self) { photo in
+                PhotoViewerView(photos: [photo])
+            }
+        }
+    }
+}
+
+/// Generates two synthetic clips, runs the PiP composite, and plays the result
+/// — the only way to iterate on VideoCompositor without a multicam device.
+struct DebugPiPCompositeView: View {
+    @State private var player: AVPlayer?
+    @State private var errorText: String?
+
+    var body: some View {
+        Group {
+            if let player {
+                VideoPlayer(player: player)
+                    .onAppear { player.play() }
+            } else if let errorText {
+                ContentUnavailableView(errorText, systemImage: "exclamationmark.triangle")
+            } else {
+                ProgressView("Compositing…")
+            }
+        }
+        .task {
+            guard player == nil else { return }
+            let clips = await Task.detached {
+                (DebugSupport.makeSampleVideo(hueBase: 0.58),
+                 DebugSupport.makeSampleVideo(hueBase: 0.02))
+            }.value
+            guard let back = clips.0, let front = clips.1 else {
+                errorText = "Sample clip generation failed"
+                return
+            }
+            do {
+                let output = try await VideoCompositor.compositePiP(backURL: back, frontURL: front)
+                try? FileManager.default.removeItem(at: back)
+                try? FileManager.default.removeItem(at: front)
+                player = AVPlayer(url: output)
+            } catch {
+                errorText = "Composite failed: \(error.localizedDescription)"
+            }
+        }
+    }
+}
+
+/// Auto-generates a report PDF from the first project so the renderer can be
+/// verified in the simulator without tap automation.
+struct DebugReportPDFView: View {
+    @Environment(\.modelContext) private var modelContext
+    @Environment(Session.self) private var session
+
+    @Query(filter: #Predicate<Project> { $0.deletedAt == nil }, sort: \Project.name)
+    private var projects: [Project]
+
+    @State private var pdfURL: URL?
+
+    var body: some View {
+        Group {
+            if let pdfURL {
+                PDFKitView(url: pdfURL)
+            } else {
+                ProgressView()
+            }
+        }
+        .task {
+            guard pdfURL == nil,
+                  let project = projects.first(where: { !$0.activePhotos.isEmpty }) else { return }
+            let photos = project.activePhotos.sorted { $0.capturedAt > $1.capturedAt }
+            let store = ReportStore(context: modelContext)
+            let report = store.create(
+                title: "\(project.name) — Site Progress",
+                photoIDs: photos.map(\.id),
+                photoNotes: photos.first.map { [$0.id: "Junction box relabeled and closed up."] } ?? [:],
+                layout: .twoPerPage,
+                includesChecklistSummary: true,
+                project: project
+            )
+            if let url = await ReportPDFRenderer.render(report: report, project: project, organization: session.activeOrganization) {
+                report.pdfFileName = url.lastPathComponent
+                pdfURL = url
+            }
+        }
+    }
+}
+#endif

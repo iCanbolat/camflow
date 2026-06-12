@@ -1,0 +1,30 @@
+import SwiftUI
+import SwiftData
+
+/// Gates the app: Welcome slides → Auth → Create organization → Permissions →
+/// the main tab UI. Each step is driven by a persisted flag or `Session` state,
+/// so re-launching resumes wherever the user left off.
+struct RootCoordinatorView: View {
+    @Environment(Session.self) private var session
+
+    @AppStorage("hasSeenWelcome") private var hasSeenWelcome = false
+    @AppStorage("hasPrimedPermissions") private var hasPrimedPermissions = false
+
+    var body: some View {
+        if !hasSeenWelcome {
+            WelcomeView { hasSeenWelcome = true }
+        } else if session.currentAccount == nil {
+            AuthView()
+        } else if session.activeOrganizationID == nil {
+            // `activeOrganizationID` is observable state (unlike the computed
+            // `organizations` fetch), so creating the first org re-renders this
+            // gate. `Session.normalizeActiveOrg` guarantees it is non-nil
+            // whenever the account has at least one organization.
+            CreateOrganizationView()
+        } else if !hasPrimedPermissions {
+            PermissionPrimingView { hasPrimedPermissions = true }
+        } else {
+            RootTabView()
+        }
+    }
+}
