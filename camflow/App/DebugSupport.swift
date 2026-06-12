@@ -11,8 +11,17 @@ import AVKit
 ///   -initialTab projects     → open on a specific tab
 ///   -seedSampleData YES      → insert a demo account, two orgs, projects + photos
 ///   -skipAuth YES            → sign in to the first seeded account and skip onboarding
+///   -activeOrgName "<name>"  → select the active org by name
+///   -planTier basic|pro|premium          → set the active org's plan tier
+///   -activeRole admin|manager|standard   → set the current account's role in the active org
 ///   -debugScreen viewer      → open the photo viewer over the tab bar
 ///   -debugScreen annotation  → open the annotation editor over the tab bar
+///   -debugScreen billing     → open Plan & Billing; upgradeprompt → the upsell sheet
+///   -debugScreen inviteshare → the invite-link share sheet (seeded code CREW2345)
+///   -debugScreen joinorg     → the join-organization screen for CREW2345
+///   -inviteURL "camflow://invite/CREW2345" → route an invite link through the
+///       same parser as onOpenURL (simctl openurl triggers a system open-in-app
+///       prompt that can't be tapped without UI automation)
 /// `-seedSampleData YES` implies `-skipAuth YES` so screenshot runs land in-app;
 /// pass an explicit `-skipAuth NO` to seed but still go through AuthView.
 enum DebugSupport {
@@ -86,11 +95,16 @@ enum DebugSupport {
 
         seedSamplePhotos(context: context, riverside: riverside, warehouse: warehouse)
 
+        // Primary org demos the Pro tier and one member per role; Skyline stays
+        // Basic (1 project + owner) so both plan limits are easy to exercise.
+        primary.planTier = .pro
+
         let memberStore = MemberStore(context: context)
         let mehmet = memberStore.invite(
             name: "Mehmet Yılmaz",
             phoneNumber: "+90 532 111 22 33",
             title: "Site Foreman",
+            role: .manager,
             projects: [riverside],
             organization: primary
         )
@@ -98,6 +112,18 @@ enum DebugSupport {
             name: "Ayşe Demir",
             phoneNumber: "+90 533 444 55 66",
             title: "Electrician",
+            role: .standard,
+            projects: [riverside, warehouse],
+            organization: primary
+        )
+        // Stable invite code so link/redemption flows are testable via
+        // `simctl openurl camflow://invite/CREW2345` and -debugScreen.
+        memberStore.assignInviteCode("CREW2345", to: ayse)
+        memberStore.invite(
+            name: "Leyla Kaya",
+            phoneNumber: "+90 535 777 88 99",
+            title: "Office Manager",
+            role: .admin,
             projects: [riverside, warehouse],
             organization: primary
         )
@@ -135,6 +161,34 @@ enum DebugSupport {
            let org = session.organizations.first(where: { $0.name == name }) {
             session.setActiveOrg(org)
         }
+
+        // -planTier basic|pro|premium overrides the active org's plan.
+        if let raw = defaults.string(forKey: "planTier"),
+           let tier = PlanTier(rawValue: raw),
+           let org = session.activeOrganization {
+            OrganizationStore(context: context).setPlan(tier, for: org)
+        }
+
+        // -activeRole admin|manager|standard rewrites the current account's
+        // member row in the active org. Works because `Session.activeRole`
+        // prefers the membership row over the ownerAccountID fallback.
+        if let raw = defaults.string(forKey: "activeRole"),
+           let role = OrgMember.Role(rawValue: raw == "standard" ? "member" : raw),
+           role != .owner,
+           let membership = session.activeMembership {
+            membership.role = role
+        }
+    }
+
+    /// -inviteURL "<url>" feeds an invite link through `InviteLinks.code(from:)`
+    /// exactly like the onOpenURL handler, so the join flow is verifiable in
+    /// the simulator without tapping the system's open-in-app confirmation.
+    @MainActor
+    static func applyInviteURLIfRequested(session: Session) {
+        guard let raw = UserDefaults.standard.string(forKey: "inviteURL"),
+              let url = URL(string: raw),
+              let code = InviteLinks.code(from: url) else { return }
+        session.setPendingInvite(code: code)
     }
 
     private static func sha256(_ value: String) -> String {
@@ -462,6 +516,9 @@ struct DebugScreenHost: View {
     @Query(filter: #Predicate<Measurement> { $0.deletedAt == nil }, sort: \Measurement.createdAt)
     private var measurements: [Measurement]
 
+    @Query(filter: #Predicate<OrgMember> { $0.deletedAt == nil }, sort: \OrgMember.createdAt)
+    private var members: [OrgMember]
+
     var body: some View {
         NavigationStack {
             Group {
@@ -496,6 +553,16 @@ struct DebugScreenHost: View {
                     if let pair = pairs.first, let project = pair.project {
                         BeforeAfterComposerView(project: project, existingPair: pair)
                     }
+                case "billing":
+                    PlanBillingView()
+                case "upgradeprompt":
+                    UpgradePromptSheet(context: .projectLimit)
+                case "inviteshare":
+                    if let member = members.first(where: { $0.inviteCode != nil }) {
+                        InviteShareSheet(member: member)
+                    }
+                case "joinorg":
+                    JoinOrganizationView(code: "CREW2345")
                 default:
                     PhotoViewerView(photos: photos)
                 }

@@ -13,10 +13,16 @@ final class Session {
 
     private(set) var currentAccount: Account?
     private(set) var activeOrganizationID: UUID?
+    /// Invite code from a tapped link or manual entry, waiting to be redeemed.
+    /// Persisted so it survives the welcome → auth journey (and app restarts);
+    /// deliberately NOT cleared on sign-out so a same-device invitee can sign
+    /// up and still land on the join screen.
+    private(set) var pendingInviteCode: String?
 
     private enum Keys {
         static let account = "currentAccountID"
         static let org = "activeOrganizationID"
+        static let pendingInvite = "pendingInviteCode"
         /// Mirrors `RootCoordinatorView`'s @AppStorage gate.
         static let hasSeenWelcome = "hasSeenWelcome"
     }
@@ -32,6 +38,7 @@ final class Session {
            let id = UUID(uuidString: raw) {
             activeOrganizationID = id
         }
+        pendingInviteCode = UserDefaults.standard.string(forKey: Keys.pendingInvite)
         normalizeActiveOrg()
     }
 
@@ -44,6 +51,37 @@ final class Session {
 
     var activeOrganization: Organization? {
         OrganizationStore(context: context).organization(id: activeOrganizationID)
+    }
+
+    /// The current account's member row in the active organization.
+    var activeMembership: OrgMember? {
+        guard let accountID = currentAccount?.id, let orgID = activeOrganizationID else { return nil }
+        let descriptor = FetchDescriptor<OrgMember>(
+            predicate: #Predicate { $0.accountID == accountID && $0.deletedAt == nil }
+        )
+        let members = (try? context.fetch(descriptor)) ?? []
+        return members.first { $0.organization?.id == orgID }
+    }
+
+    /// Role in the active org. The member row wins; the `ownerAccountID`
+    /// fallback covers orgs created before owner member rows existed.
+    /// Note: `can(_:)` re-evaluates on account/org switches; editing the
+    /// current user's *own* member row in-place won't re-render gated views,
+    /// which is acceptable while the only signed-in account is local.
+    var activeRole: OrgMember.Role {
+        if let membership = activeMembership { return membership.role }
+        if let account = currentAccount, account.id == activeOrganization?.ownerAccountID {
+            return .owner
+        }
+        return .standard
+    }
+
+    func can(_ permission: Permission) -> Bool {
+        activeRole.can(permission)
+    }
+
+    var activePlan: PlanTier {
+        activeOrganization?.planTier ?? .basic
     }
 
     // MARK: - Mutations
@@ -63,6 +101,15 @@ final class Session {
         setActiveOrg(org)
     }
 
+    func setPendingInvite(code: String?) {
+        pendingInviteCode = code
+        if let code {
+            UserDefaults.standard.set(code, forKey: Keys.pendingInvite)
+        } else {
+            UserDefaults.standard.removeObject(forKey: Keys.pendingInvite)
+        }
+    }
+
     func signOut() {
         currentAccount = nil
         activeOrganizationID = nil
@@ -70,6 +117,14 @@ final class Session {
         UserDefaults.standard.removeObject(forKey: Keys.org)
         // Signing out restarts the journey from the welcome slides, not AuthView.
         UserDefaults.standard.set(false, forKey: Keys.hasSeenWelcome)
+    }
+
+    /// Called after the active organization is soft-deleted: falls back to the
+    /// next remaining org, or to nil so the root coordinator shows org creation.
+    func handleOrgDeleted() {
+        activeOrganizationID = nil
+        UserDefaults.standard.removeObject(forKey: Keys.org)
+        normalizeActiveOrg()
     }
 
     /// Ensures the active org is one the current account actually belongs to,

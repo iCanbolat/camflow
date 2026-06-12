@@ -1,8 +1,9 @@
 import SwiftUI
 import SwiftData
 
-/// Organization team management: the owner invites members by phone number,
-/// gives them a title, and scopes them to projects.
+/// Organization team management: owners, admins, and managers invite members
+/// with a shareable link, give them a title and role, and assign them to
+/// projects.
 struct TeamView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(Session.self) private var session
@@ -12,6 +13,9 @@ struct TeamView: View {
 
     @State private var isShowingInviteSheet = false
     @State private var editingMember: OrgMember?
+    @State private var sharingMember: OrgMember?
+    @State private var memberToDelete: OrgMember?
+    @State private var upgradeContext: UpgradeContext?
 
     /// Members of the active organization.
     private var orgMembers: [OrgMember] {
@@ -40,21 +44,42 @@ struct TeamView: View {
                         ContentUnavailableView {
                             Label("No Team Members Yet", systemImage: "person.2")
                         } description: {
-                            Text("Invite your crew by phone number and assign them to projects.")
+                            Text("Invite your crew with a shareable link and assign them to projects.")
                         } actions: {
-                            Button("Invite Member") { isShowingInviteSheet = true }
-                                .buttonStyle(.borderedProminent)
+                            if session.can(.manageTeam) {
+                                Button("Invite Member") { startInvite() }
+                                    .buttonStyle(.borderedProminent)
+                            }
                         }
                     } else {
                         ForEach(teamMembers) { member in
-                            Button {
-                                editingMember = member
-                            } label: {
+                            if session.can(.manageTeam) {
+                                Button {
+                                    editingMember = member
+                                } label: {
+                                    MemberRow(member: member)
+                                }
+                                .foregroundStyle(.primary)
+                                .contextMenu {
+                                    if member.status == .invited {
+                                        Button {
+                                            sharingMember = member
+                                        } label: {
+                                            Label("Share Invite Link", systemImage: "link")
+                                        }
+                                    }
+                                    Button(role: .destructive) {
+                                        memberToDelete = member
+                                    } label: {
+                                        Label("Remove Member", systemImage: "person.badge.minus")
+                                    }
+                                }
+                            } else {
                                 MemberRow(member: member)
                             }
-                            .foregroundStyle(.primary)
                         }
                         .onDelete(perform: deleteMembers)
+                        .deleteDisabled(!session.can(.manageTeam))
                     }
                 } header: {
                     if !teamMembers.isEmpty {
@@ -62,17 +87,19 @@ struct TeamView: View {
                     }
                 } footer: {
                     if !teamMembers.isEmpty {
-                        Text("Members see only the projects they're added to. SMS invites and member sign-in arrive with cloud sync.")
+                        Text("Standard members can only see projects they're assigned to; other roles see all organization projects. Project assignment also drives tasks and notifications. Invited members join by opening their invite link.")
                     }
                 }
             }
             .navigationTitle("Team")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        isShowingInviteSheet = true
-                    } label: {
-                        Image(systemName: "person.badge.plus")
+                    if session.can(.manageTeam) {
+                        Button {
+                            startInvite()
+                        } label: {
+                            Image(systemName: "person.badge.plus")
+                        }
                     }
                 }
             }
@@ -82,6 +109,30 @@ struct TeamView: View {
             .sheet(item: $editingMember) { member in
                 MemberEditorSheet(member: member)
             }
+            .sheet(item: $sharingMember) { member in
+                InviteShareSheet(member: member)
+            }
+            .sheet(item: $upgradeContext) { context in
+                UpgradePromptSheet(context: context)
+            }
+            .alert(
+                "Remove Member",
+                isPresented: Binding(get: { memberToDelete != nil }, set: { if !$0 { memberToDelete = nil } }),
+                presenting: memberToDelete
+            ) { member in
+                Button("Remove", role: .destructive) { removeMember(member) }
+                Button("Cancel", role: .cancel) { memberToDelete = nil }
+            } message: { member in
+                Text("Remove \(member.name) from the organization? They will lose access immediately.")
+            }
+        }
+    }
+
+    private func startInvite() {
+        if session.activeOrganization?.canAddMember ?? true {
+            isShowingInviteSheet = true
+        } else {
+            upgradeContext = .memberLimit
         }
     }
 
@@ -90,6 +141,11 @@ struct TeamView: View {
         for offset in offsets {
             store.softDelete(teamMembers[offset])
         }
+    }
+
+    private func removeMember(_ member: OrgMember) {
+        MemberStore(context: modelContext).softDelete(member)
+        memberToDelete = nil
     }
 }
 
@@ -149,18 +205,21 @@ struct MemberRow: View {
 
     @ViewBuilder
     private var statusChip: some View {
-        switch (member.role, member.status) {
-        case (.owner, _):
-            LabelChip(name: String(localized: "Owner"), colorHex: "#FF6B35")
-        case (_, .active):
-            LabelChip(name: String(localized: "Active"), colorHex: "#2E933C")
-        case (_, .invited):
-            LabelChip(name: String(localized: "Invited"), colorHex: "#F7B32B")
+        LabelChip(name: member.role.displayName, colorHex: member.role.chipColorHex)
+        if member.role != .owner {
+            switch member.status {
+            case .active:
+                LabelChip(name: String(localized: "Active"), colorHex: "#2E933C")
+            case .invited:
+                LabelChip(name: String(localized: "Invited"), colorHex: "#F7B32B")
+            }
         }
     }
 }
 
 /// Invite a new member or edit an existing one: name, phone, title, projects.
+/// A new invite swaps the sheet's content to `InviteShareSheet` so the link
+/// can be shared right away without a dismiss/present race.
 struct MemberEditorSheet: View {
     let member: OrgMember?
 
@@ -174,7 +233,11 @@ struct MemberEditorSheet: View {
     @State private var name = ""
     @State private var phoneNumber = ""
     @State private var title = ""
+    @State private var role: OrgMember.Role = .standard
     @State private var selectedProjectIDs: Set<UUID> = []
+    @State private var isConfirmingDelete = false
+    /// Set after a new invite is saved; switches the sheet to link sharing.
+    @State private var invitedMember: OrgMember?
 
     /// Projects in the active organization, the only ones a member can be scoped to.
     private var projects: [Project] {
@@ -184,18 +247,24 @@ struct MemberEditorSheet: View {
     private var isOwner: Bool { member?.role == .owner }
 
     private var canSave: Bool {
-        let trimmedName = name.trimmingCharacters(in: .whitespaces)
-        if isOwner { return !trimmedName.isEmpty }
-        return !trimmedName.isEmpty && !phoneNumber.trimmingCharacters(in: .whitespaces).isEmpty
+        !name.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
     var body: some View {
+        if let invitedMember {
+            InviteShareSheet(member: invitedMember)
+        } else {
+            editorForm
+        }
+    }
+
+    private var editorForm: some View {
         NavigationStack {
             Form {
                 Section("Member") {
                     TextField("Full name", text: $name)
                         .textContentType(.name)
-                    TextField("Phone number", text: $phoneNumber)
+                    TextField("Phone number (optional)", text: $phoneNumber)
                         .textContentType(.telephoneNumber)
                         .keyboardType(.phonePad)
                     TextField("Title (e.g. Site Foreman)", text: $title)
@@ -203,6 +272,26 @@ struct MemberEditorSheet: View {
                 }
 
                 if !isOwner {
+                    Section {
+                        if session.can(.changeRoles) {
+                            Picker("Role", selection: $role) {
+                                ForEach(OrgMember.Role.assignable, id: \.self) { role in
+                                    Text(role.displayName).tag(role)
+                                }
+                            }
+                        } else {
+                            LabeledContent("Role", value: role.displayName)
+                        }
+                    } header: {
+                        Text("Role")
+                    } footer: {
+                        if session.can(.changeRoles) {
+                            Text(role.summary)
+                        } else {
+                            Text("Only owners and admins can change roles.")
+                        }
+                    }
+
                     Section {
                         if projects.isEmpty {
                             Text("Create a project first to assign members.")
@@ -235,7 +324,21 @@ struct MemberEditorSheet: View {
                     } header: {
                         Text("Projects")
                     } footer: {
-                        Text("The member can view these projects, add photos, and work on assigned checklists.")
+                        Text("Standard members can only see assigned projects. Assignments also drive tasks and notifications.")
+                    }
+                }
+
+                if let member, member.role != .owner, session.can(.manageTeam) {
+                    Section {
+                        Button(role: .destructive) {
+                            isConfirmingDelete = true
+                        } label: {
+                            HStack {
+                                Spacer()
+                                Text("Remove from Organization")
+                                Spacer()
+                            }
+                        }
                     }
                 }
             }
@@ -251,6 +354,19 @@ struct MemberEditorSheet: View {
                 }
             }
             .onAppear(perform: loadExisting)
+            .alert("Remove Member", isPresented: $isConfirmingDelete) {
+                Button("Remove", role: .destructive) {
+                    if let member {
+                        MemberStore(context: modelContext).softDelete(member)
+                        dismiss()
+                    }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                if let member {
+                    Text("Remove \(member.name) from the organization? They will lose access immediately.")
+                }
+            }
         }
     }
 
@@ -264,6 +380,7 @@ struct MemberEditorSheet: View {
         name = member.name
         phoneNumber = member.phoneNumber
         title = member.title
+        role = member.role
         selectedProjectIDs = Set(member.activeProjects.map(\.id))
     }
 
@@ -285,18 +402,24 @@ struct MemberEditorSheet: View {
             member.title = title.trimmingCharacters(in: .whitespaces)
             if member.role != .owner {
                 member.projects = selectedProjects
+                if session.can(.changeRoles) {
+                    store.setRole(role, for: member)
+                }
             }
             store.touch(member)
+            dismiss()
         } else {
-            store.invite(
+            let invited = store.invite(
                 name: name.trimmingCharacters(in: .whitespaces),
                 phoneNumber: phoneNumber.trimmingCharacters(in: .whitespaces),
                 title: title.trimmingCharacters(in: .whitespaces),
+                role: session.can(.changeRoles) ? role : .standard,
                 projects: selectedProjects,
                 organization: session.activeOrganization
             )
+            // Swap to the share step instead of dismissing.
+            invitedMember = invited
         }
-        dismiss()
     }
 }
 

@@ -1,15 +1,21 @@
 import Foundation
 import SwiftData
 
-/// A person in the organization. Members are invited by phone number and
-/// scoped to the projects they're added to. In the local-first v1 the invite
-/// stays `.invited`; the cloud sync phase delivers the SMS invite + login and
-/// flips members to `.active`.
+/// A person in the organization. Members are invited with a shareable link
+/// (`https://camflow.app/invite/<code>`); everyone sees all of the
+/// organization's projects, and project assignment drives task assignment and
+/// (future) notifications. In the local-first v1 redemption happens on-device
+/// via `LocalInviteService`; the cloud phase moves code issuance/redemption to
+/// the backend and flips members to `.active` when they join.
 @Model
 final class OrgMember {
-    enum Role: String, Codable {
+    enum Role: String, Codable, CaseIterable {
         case owner
-        case member
+        case admin
+        case manager
+        // Raw value stays "member" so rows written before the role system
+        // decode without migration.
+        case standard = "member"
     }
 
     enum Status: String, Codable {
@@ -34,6 +40,13 @@ final class OrgMember {
     /// signed up yet. "Orgs I belong to" = members where `accountID == my id`.
     var accountID: UUID?
 
+    /// Short shareable invite code embedded in the invite link. Optional so
+    /// existing rows migrate as NULL; issued lazily by `InviteService`.
+    /// Uniqueness is enforced at generation time, not with a constraint —
+    /// adding `.unique` to a migrated column is risky.
+    var inviteCode: String?
+    var inviteCreatedAt: Date?
+
     /// Projects this member can see and contribute to.
     var projects: [Project] = []
 
@@ -52,7 +65,7 @@ final class OrgMember {
         name: String,
         phoneNumber: String,
         title: String = "",
-        role: Role = .member,
+        role: Role = .standard,
         status: Status = .invited,
         colorHex: String = TagPalette.colors[3],
         accountID: UUID? = nil
@@ -69,6 +82,44 @@ final class OrgMember {
         self.updatedAt = .now
         self.deletedAt = nil
         self.syncStatus = .local
+    }
+}
+
+extension OrgMember.Role {
+    /// Roles that can be assigned in pickers. `.owner` is never assignable:
+    /// there is exactly one owner per organization (its creator).
+    static let assignable: [OrgMember.Role] = [.admin, .manager, .standard]
+
+    var displayName: String {
+        switch self {
+        case .owner: String(localized: "Owner")
+        case .admin: String(localized: "Admin")
+        case .manager: String(localized: "Manager")
+        case .standard: String(localized: "Standard")
+        }
+    }
+
+    var chipColorHex: String {
+        switch self {
+        case .owner: "#FF6B35"
+        case .admin: "#E0475B"
+        case .manager: "#1B98E0"
+        case .standard: "#13B5B1"
+        }
+    }
+
+    /// One-line description shown under role pickers.
+    var summary: String {
+        switch self {
+        case .owner:
+            String(localized: "Full control, including deleting the organization.")
+        case .admin:
+            String(localized: "Everything: billing, company profile, team and roles.")
+        case .manager:
+            String(localized: "Manages the team, tags, labels, templates, and projects.")
+        case .standard:
+            String(localized: "Works in assigned projects only: photos, tasks, checklists, reports.")
+        }
     }
 }
 

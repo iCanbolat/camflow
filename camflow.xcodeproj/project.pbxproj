@@ -249,10 +249,12 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = camflow.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Info.plist;
 				INFOPLIST_KEY_NSCameraUsageDescription = "CamFlow uses the camera to capture job site photos.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Location is used to stamp photos with GPS and suggest the nearest project.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "CamFlow records audio with your job site videos.";
@@ -283,10 +285,12 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = camflow.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Info.plist;
 				INFOPLIST_KEY_NSCameraUsageDescription = "CamFlow uses the camera to capture job site photos.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Location is used to stamp photos with GPS and suggest the nearest project.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "CamFlow records audio with your job site videos.";

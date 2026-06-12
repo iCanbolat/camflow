@@ -15,6 +15,7 @@ struct ProjectDetailView: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    @Environment(Session.self) private var session
 
     @Query(filter: #Predicate<Tag> { $0.deletedAt == nil }, sort: \Tag.name)
     private var tags: [Tag]
@@ -22,6 +23,7 @@ struct ProjectDetailView: View {
     @State private var segment: Segment = .photos
     @State private var isShowingEditor = false
     @State private var isConfirmingDelete = false
+    @State private var upgradeContext: UpgradeContext?
 
     // Photo grid state
     @State private var filterTagID: UUID?
@@ -83,10 +85,12 @@ struct ProjectDetailView: View {
                     } label: {
                         Label("Edit Project", systemImage: "pencil")
                     }
-                    Button(role: .destructive) {
-                        isConfirmingDelete = true
-                    } label: {
-                        Label("Delete Project", systemImage: "trash")
+                    if session.can(.deleteProject) {
+                        Button(role: .destructive) {
+                            isConfirmingDelete = true
+                        } label: {
+                            Label("Delete Project", systemImage: "trash")
+                        }
                     }
                 } label: {
                     Image(systemName: "ellipsis.circle")
@@ -367,10 +371,12 @@ struct ProjectDetailView: View {
                         }
                     }
                 }
-                Button {
-                    isShowingMemberPicker = true
-                } label: {
-                    Label("Manage Members", systemImage: "person.badge.plus")
+                if session.can(.manageTeam) {
+                    Button {
+                        isShowingMemberPicker = true
+                    } label: {
+                        Label("Manage Members", systemImage: "person.badge.plus")
+                    }
                 }
             }
 
@@ -391,6 +397,9 @@ struct ProjectDetailView: View {
         }
         .sheet(item: $viewingMeasurement) { measurement in
             MeasurementDetailSheet(measurement: measurement)
+        }
+        .sheet(item: $upgradeContext) { context in
+            UpgradePromptSheet(context: context)
         }
         .fullScreenCover(isPresented: $isCreatingMeasurement) {
             MeasureView(project: project)
@@ -476,16 +485,32 @@ struct ProjectDetailView: View {
                 }
             }
 
-            Button {
-                isCreatingMeasurement = true
-            } label: {
-                Label("New Measurement", systemImage: "ruler")
+            // Plan lock comes before device support: a locked button stays
+            // tappable so it can present the upsell sheet.
+            if session.activePlan.includesARMeasure {
+                Button {
+                    isCreatingMeasurement = true
+                } label: {
+                    Label("New Measurement", systemImage: "ruler")
+                }
+                .disabled(!ARWorldTrackingConfiguration.isSupported)
+            } else {
+                Button {
+                    upgradeContext = .arMeasure
+                } label: {
+                    HStack {
+                        Label("New Measurement", systemImage: "ruler")
+                        Spacer()
+                        LockBadge()
+                    }
+                }
             }
-            .disabled(!ARWorldTrackingConfiguration.isSupported)
         } header: {
             Text("Measurements")
         } footer: {
-            if !ARWorldTrackingConfiguration.isSupported {
+            if !session.activePlan.includesARMeasure {
+                Text("AR measurement is included with the Premium plan.")
+            } else if !ARWorldTrackingConfiguration.isSupported {
                 Text("AR measuring isn't supported on this device.")
             }
         }

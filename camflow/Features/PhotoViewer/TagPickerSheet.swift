@@ -8,6 +8,7 @@ struct TagPickerSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    @Environment(Session.self) private var session
 
     @Query(filter: #Predicate<Tag> { $0.deletedAt == nil }, sort: \Tag.name)
     private var tags: [Tag]
@@ -21,10 +22,16 @@ struct TagPickerSheet: View {
                     ContentUnavailableView {
                         Label("No Tags Yet", systemImage: "tag")
                     } description: {
-                        Text("Create tags like “Electrical” or “Damage” to categorize photos.")
+                        if session.can(.manageTaxonomy) {
+                            Text("Create tags like “Electrical” or “Damage” to categorize photos.")
+                        } else {
+                            Text("Ask a manager or admin to create tags.")
+                        }
                     } actions: {
-                        Button("New Tag") { isCreatingTag = true }
-                            .buttonStyle(.borderedProminent)
+                        if session.can(.manageTaxonomy) {
+                            Button("New Tag") { isCreatingTag = true }
+                                .buttonStyle(.borderedProminent)
+                        }
                     }
                 } else {
                     List(tags) { tag in
@@ -51,10 +58,12 @@ struct TagPickerSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        isCreatingTag = true
-                    } label: {
-                        Image(systemName: "plus")
+                    if session.can(.manageTaxonomy) {
+                        Button {
+                            isCreatingTag = true
+                        } label: {
+                            Image(systemName: "plus")
+                        }
                     }
                 }
                 ToolbarItem(placement: .confirmationAction) {

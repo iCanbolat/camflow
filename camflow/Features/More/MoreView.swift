@@ -23,29 +23,47 @@ struct MoreView: View {
                     }
                 }
 
-                Section {
-                    NavigationLink {
-                        CompanyProfileView()
-                    } label: {
-                        Label("Company Profile", systemImage: "building.2.fill")
+                if session.can(.editCompanyProfile) || session.can(.manageBilling) {
+                    Section {
+                        if session.can(.editCompanyProfile) {
+                            NavigationLink {
+                                CompanyProfileView()
+                            } label: {
+                                Label("Company Profile", systemImage: "building.2.fill")
+                            }
+                        }
+                        if session.can(.manageBilling) {
+                            NavigationLink {
+                                PlanBillingView()
+                            } label: {
+                                HStack {
+                                    Label("Plan & Billing", systemImage: "creditcard.fill")
+                                    Spacer()
+                                    Text(session.activePlan.displayName)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
                     }
                 }
 
-                Section("Organization") {
-                    NavigationLink {
-                        TagManagerView()
-                    } label: {
-                        Label("Photo Tags", systemImage: "tag.fill")
-                    }
-                    NavigationLink {
-                        LabelManagerView()
-                    } label: {
-                        Label("Project Labels", systemImage: "flag.fill")
-                    }
-                    NavigationLink {
-                        TemplateListView()
-                    } label: {
-                        Label("Checklist Templates", systemImage: "list.bullet.rectangle.fill")
+                if session.can(.manageTaxonomy) {
+                    Section("Organization") {
+                        NavigationLink {
+                            TagManagerView()
+                        } label: {
+                            Label("Photo Tags", systemImage: "tag.fill")
+                        }
+                        NavigationLink {
+                            LabelManagerView()
+                        } label: {
+                            Label("Project Labels", systemImage: "flag.fill")
+                        }
+                        NavigationLink {
+                            TemplateListView()
+                        } label: {
+                            Label("Checklist Templates", systemImage: "list.bullet.rectangle.fill")
+                        }
                     }
                 }
 

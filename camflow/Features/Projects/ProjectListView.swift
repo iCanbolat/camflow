@@ -21,10 +21,18 @@ struct ProjectListView: View {
     @State private var filterLabelID: UUID?
     @State private var isShowingEditor = false
     @State private var isShowingMap = false
+    @State private var upgradeContext: UpgradeContext?
 
-    /// Projects owned by the active organization.
+    /// Projects the current user may see.
+    /// Standard members only see projects they're explicitly assigned to;
+    /// all other roles see every project in the active organization.
     private var orgProjects: [Project] {
-        projects.filter { $0.organization?.id == session.activeOrganizationID }
+        let all = projects.filter { $0.organization?.id == session.activeOrganizationID }
+        if session.activeRole == .standard, let membership = session.activeMembership {
+            let assignedIDs = Set(membership.activeProjects.map(\.id))
+            return all.filter { assignedIDs.contains($0.id) }
+        }
+        return all
     }
 
     private var filteredProjects: [Project] {
@@ -48,13 +56,21 @@ struct ProjectListView: View {
         NavigationStack {
             Group {
                 if orgProjects.isEmpty {
-                    ContentUnavailableView {
-                        Label("No Projects Yet", systemImage: "folder.badge.plus")
-                    } description: {
-                        Text("Create a project for each job site to keep photos organized.")
-                    } actions: {
-                        Button("New Project") { isShowingEditor = true }
-                            .buttonStyle(.borderedProminent)
+                    if session.activeRole == .standard {
+                        ContentUnavailableView {
+                            Label("No Projects Assigned", systemImage: "folder")
+                        } description: {
+                            Text("You haven't been added to any projects yet. Contact your manager.")
+                        }
+                    } else {
+                        ContentUnavailableView {
+                            Label("No Projects Yet", systemImage: "folder.badge.plus")
+                        } description: {
+                            Text("Create a project for each job site to keep photos organized.")
+                        } actions: {
+                            Button("New Project") { startNewProject() }
+                                .buttonStyle(.borderedProminent)
+                        }
                     }
                 } else if isShowingMap {
                     ProjectMapView(projects: filteredProjects)
@@ -87,7 +103,7 @@ struct ProjectListView: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
-                        isShowingEditor = true
+                        startNewProject()
                     } label: {
                         Image(systemName: "plus")
                     }
@@ -96,6 +112,17 @@ struct ProjectListView: View {
             .sheet(isPresented: $isShowingEditor) {
                 ProjectEditorView()
             }
+            .sheet(item: $upgradeContext) { context in
+                UpgradePromptSheet(context: context)
+            }
+        }
+    }
+
+    private func startNewProject() {
+        if session.activeOrganization?.canAddProject ?? true {
+            isShowingEditor = true
+        } else {
+            upgradeContext = .projectLimit
         }
     }
 

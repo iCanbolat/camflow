@@ -55,4 +55,17 @@ struct OrganizationStore {
         org.updatedAt = .now
         org.syncStatus = .local
     }
+
+    func setPlan(_ tier: PlanTier, for org: Organization) {
+        guard org.planTier != tier else { return }
+        org.planTier = tier
+        touch(org)
+    }
+
+    /// Children are left in place; `organizations(for:)` and `organization(id:)`
+    /// filter `deletedAt == nil`, so the org disappears everywhere at once.
+    func softDelete(_ org: Organization) {
+        org.deletedAt = .now
+        touch(org)
+    }
 }

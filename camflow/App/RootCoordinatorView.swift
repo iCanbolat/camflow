@@ -1,9 +1,10 @@
 import SwiftUI
 import SwiftData
 
-/// Gates the app: Welcome slides → Auth → Create organization → Permissions →
-/// the main tab UI. Each step is driven by a persisted flag or `Session` state,
-/// so re-launching resumes wherever the user left off.
+/// Gates the app: Welcome slides → Auth → Join (pending invite) / Create
+/// organization → Permissions → the main tab UI. Each step is driven by a
+/// persisted flag or `Session` state, so re-launching resumes wherever the
+/// user left off.
 struct RootCoordinatorView: View {
     @Environment(Session.self) private var session
 
@@ -15,6 +16,10 @@ struct RootCoordinatorView: View {
             WelcomeView { hasSeenWelcome = true }
         } else if session.currentAccount == nil {
             AuthView()
+        } else if let code = session.pendingInviteCode {
+            // An invited user is never forced into org creation; accepting or
+            // declining clears the code and falls through to the next gate.
+            JoinOrganizationView(code: code)
         } else if session.activeOrganizationID == nil {
             // `activeOrganizationID` is observable state (unlike the computed
             // `organizations` fetch), so creating the first org re-renders this

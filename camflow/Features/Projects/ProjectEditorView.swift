@@ -146,6 +146,12 @@ struct ProjectEditorView: View {
             project.label = label
             store.touch(project)
         } else {
+            // Entry points show the upgrade prompt before opening the editor;
+            // this guard covers any path that skipped that check.
+            guard session.activeOrganization?.canAddProject ?? true else {
+                dismiss()
+                return
+            }
             store.create(
                 name: trimmedName,
                 address: address,

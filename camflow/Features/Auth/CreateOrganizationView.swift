@@ -16,6 +16,8 @@ struct CreateOrganizationView: View {
     @State private var name = ""
     @State private var logoItem: PhotosPickerItem?
     @State private var logoImage: UIImage?
+    @State private var isShowingCodeEntry = false
+    @State private var clipboardCode: String?
 
     private var trimmedName: String {
         name.trimmingCharacters(in: .whitespaces)
@@ -71,14 +73,21 @@ struct CreateOrganizationView: View {
 
             Spacer()
 
-            Button(action: create) {
-                Text("Create")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
+            VStack(spacing: 12) {
+                Button(action: create) {
+                    Text("Create")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .disabled(trimmedName.isEmpty)
+
+                if !isModal {
+                    Button("Have an invite code?") { isShowingCodeEntry = true }
+                        .font(.footnote.weight(.medium))
+                }
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .disabled(trimmedName.isEmpty)
             .padding(.horizontal, 24)
             .padding(.bottom, 16)
         }
@@ -88,6 +97,27 @@ struct CreateOrganizationView: View {
                 Button("Cancel") { dismiss() }
                     .padding()
             }
+        }
+        .sheet(isPresented: $isShowingCodeEntry) {
+            InviteCodeEntrySheet()
+        }
+        .task {
+            // Onboarding step only; InviteClipboard's once-per-launch flag
+            // also keeps this from double-prompting after AuthView.
+            guard !isModal, session.pendingInviteCode == nil else { return }
+            clipboardCode = await InviteClipboard.detectInviteCode()
+        }
+        .alert(
+            "Join with invite code \(clipboardCode ?? "")?",
+            isPresented: Binding(get: { clipboardCode != nil }, set: { if !$0 { clipboardCode = nil } })
+        ) {
+            Button("Join") {
+                session.setPendingInvite(code: clipboardCode)
+                clipboardCode = nil
+            }
+            Button("Not Now", role: .cancel) { clipboardCode = nil }
+        } message: {
+            Text("We found a CamFlow invite link on your clipboard.")
         }
         .onChange(of: logoItem) {
             Task {

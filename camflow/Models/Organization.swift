@@ -17,6 +17,14 @@ final class Organization {
     var website: String
     /// `Account.id` of the owner who created the organization.
     var ownerAccountID: UUID
+    // Stored as an optional raw string: lightweight migration leaves existing
+    // rows NULL, and SwiftData crashes casting NULL into a non-optional enum.
+    private var planTierRaw: String?
+
+    var planTier: PlanTier {
+        get { planTierRaw.flatMap(PlanTier.init(rawValue:)) ?? .basic }
+        set { planTierRaw = newValue.rawValue }
+    }
 
     @Relationship(inverse: \OrgMember.organization)
     var members: [OrgMember] = []
@@ -37,6 +45,7 @@ final class Organization {
         self.email = ""
         self.website = ""
         self.ownerAccountID = ownerAccountID
+        self.planTierRaw = PlanTier.basic.rawValue
         self.createdAt = .now
         self.updatedAt = .now
         self.deletedAt = nil
@@ -47,5 +56,18 @@ final class Organization {
 extension Organization {
     var activeMembers: [OrgMember] {
         members.filter { $0.deletedAt == nil }
+    }
+
+    var activeProjects: [Project] {
+        projects.filter { $0.deletedAt == nil }
+    }
+
+    /// Plan limits gate creating new items only; existing data is never removed.
+    var canAddProject: Bool {
+        planTier.maxActiveProjects.map { activeProjects.count < $0 } ?? true
+    }
+
+    var canAddMember: Bool {
+        planTier.maxMembers.map { activeMembers.count < $0 } ?? true
     }
 }

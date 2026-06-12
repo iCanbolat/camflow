@@ -42,6 +42,7 @@ struct CaptureView: View {
     @State private var baseZoom: CGFloat = 1
     @State private var quickTagPhoto: Photo?
     @State private var processingVideoCount = 0
+    @State private var upgradeContext: UpgradeContext?
 
     private var isRecording: Bool {
         camera.isRecording || (dualCamera?.isRecording ?? false)
@@ -103,6 +104,9 @@ struct CaptureView: View {
         }
         .sheet(item: $quickTagPhoto) { photo in
             TagPickerSheet(photos: [photo])
+        }
+        .sheet(item: $upgradeContext) { context in
+            UpgradePromptSheet(context: context)
         }
     }
 
@@ -292,11 +296,31 @@ struct CaptureView: View {
             modeButton("Photo", mode: .photo)
             modeButton("Video", mode: .video)
             if DualCameraService.isSupported {
-                modeButton("Dual", mode: .dual)
+                if session.activePlan.includesDualCapture {
+                    modeButton("Dual", mode: .dual)
+                } else {
+                    lockedDualButton
+                }
             }
         }
         .background(.black.opacity(0.4), in: Capsule())
         .padding(.bottom, 12)
+    }
+
+    private var lockedDualButton: some View {
+        Button {
+            upgradeContext = .dualCapture
+        } label: {
+            HStack(spacing: 4) {
+                Text("Dual")
+                Image(systemName: "lock.fill")
+                    .font(.caption2)
+            }
+            .font(.footnote.weight(.semibold))
+            .foregroundStyle(.white.opacity(0.6))
+            .padding(.horizontal, 16)
+            .padding(.vertical, 7)
+        }
     }
 
     private func modeButton(_ title: LocalizedStringKey, mode: UIMode) -> some View {
@@ -320,6 +344,10 @@ struct CaptureView: View {
     /// coexist with the regular session).
     private func switchMode(to mode: UIMode) async {
         guard mode != uiMode, !isRecording else { return }
+        if mode == .dual && !session.activePlan.includesDualCapture {
+            upgradeContext = .dualCapture
+            return
+        }
         switch (uiMode, mode) {
         case (_, .dual):
             camera.stop()
@@ -582,6 +610,7 @@ struct ProjectPickerSheet: View {
 
     @State private var searchText = ""
     @State private var isCreatingProject = false
+    @State private var upgradeContext: UpgradeContext?
 
     private var projects: [Project] {
         allProjects.filter { $0.organization?.id == session.activeOrganizationID }
@@ -641,7 +670,11 @@ struct ProjectPickerSheet: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
-                        isCreatingProject = true
+                        if session.activeOrganization?.canAddProject ?? true {
+                            isCreatingProject = true
+                        } else {
+                            upgradeContext = .projectLimit
+                        }
                     } label: {
                         Image(systemName: "plus")
                     }
@@ -652,6 +685,9 @@ struct ProjectPickerSheet: View {
             }
             .sheet(isPresented: $isCreatingProject) {
                 ProjectEditorView()
+            }
+            .sheet(item: $upgradeContext) { context in
+                UpgradePromptSheet(context: context)
             }
         }
     }

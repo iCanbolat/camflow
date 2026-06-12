@@ -8,9 +8,12 @@ struct CompanyProfileView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(Session.self) private var session
 
+    @Environment(\.dismiss) private var dismiss
+
     @State private var organization: Organization?
     @State private var logoItem: PhotosPickerItem?
     @State private var logoImage: UIImage?
+    @State private var isConfirmingDelete = false
 
     var body: some View {
         Form {
@@ -60,18 +63,47 @@ struct CompanyProfileView: View {
                         .keyboardType(.URL)
                         .textInputAutocapitalization(.never)
                 }
+
+                if session.can(.deleteOrganization) {
+                    Section {
+                        Button("Delete Organization", role: .destructive) {
+                            isConfirmingDelete = true
+                        }
+                    } footer: {
+                        Text("Removes the organization, its projects, photos, and team for everyone.")
+                    }
+                }
             }
         }
         .navigationTitle("Company Profile")
+        .confirmationDialog(
+            "Delete \(organization?.name ?? "this organization")?",
+            isPresented: $isConfirmingDelete,
+            titleVisibility: .visible
+        ) {
+            Button("Delete Organization", role: .destructive) {
+                deleteOrganization()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes the organization, its projects, photos, and team for everyone. This cannot be undone.")
+        }
         .onAppear(perform: load)
         .onChange(of: logoItem) {
             Task { await importLogo() }
         }
         .onDisappear {
-            if let organization {
+            if let organization, organization.deletedAt == nil {
                 OrganizationStore(context: modelContext).touch(organization)
             }
         }
+    }
+
+    private func deleteOrganization() {
+        guard let organization else { return }
+        OrganizationStore(context: modelContext).softDelete(organization)
+        session.handleOrgDeleted()
+        dismiss()
     }
 
     private func load() {

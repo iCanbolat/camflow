@@ -22,6 +22,8 @@ struct AuthView: View {
     @State private var isShowingResetInfo = false
     @State private var isWorking = false
     @State private var errorMessage: String?
+    @State private var isShowingCodeEntry = false
+    @State private var clipboardCode: String?
 
     private var service: any AuthService { MockAuthService(context: modelContext) }
 
@@ -61,6 +63,9 @@ struct AuthView: View {
                 dividerRow
 
                 socialButtons
+
+                Button("Have an invite code?") { isShowingCodeEntry = true }
+                    .font(.footnote.weight(.medium))
             }
             .padding(.horizontal, 28)
             .padding(.vertical, 40)
@@ -68,6 +73,25 @@ struct AuthView: View {
         .scrollDismissesKeyboard(.interactively)
         .background(Color(.systemGroupedBackground).ignoresSafeArea())
         .animation(.default, value: mode)
+        .sheet(isPresented: $isShowingCodeEntry) {
+            InviteCodeEntrySheet()
+        }
+        .task {
+            guard session.pendingInviteCode == nil else { return }
+            clipboardCode = await InviteClipboard.detectInviteCode()
+        }
+        .alert(
+            "Join with invite code \(clipboardCode ?? "")?",
+            isPresented: Binding(get: { clipboardCode != nil }, set: { if !$0 { clipboardCode = nil } })
+        ) {
+            Button("Join") {
+                session.setPendingInvite(code: clipboardCode)
+                clipboardCode = nil
+            }
+            Button("Not Now", role: .cancel) { clipboardCode = nil }
+        } message: {
+            Text("We found a CamFlow invite link on your clipboard. Sign in to join the team.")
+        }
         .alert("Forgot Password", isPresented: $isShowingResetInfo) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -96,6 +120,25 @@ struct AuthView: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
+
+            if session.pendingInviteCode != nil {
+                HStack(spacing: 8) {
+                    Image(systemName: "envelope.open")
+                    Text("You've been invited — sign in to join the team.")
+                        .font(.footnote.weight(.medium))
+                    Button {
+                        session.setPendingInvite(code: nil)
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(Color(.secondarySystemGroupedBackground))
+                .clipShape(Capsule())
+            }
         }
         .padding(.top, 12)
     }

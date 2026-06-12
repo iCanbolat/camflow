@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import CoreServices
 
 @main
 struct CamFlowApp: App {
@@ -33,7 +34,18 @@ struct CamFlowApp: App {
             fatalError("Failed to create model container: \(error)")
         }
         self.container = container
-        _session = State(initialValue: Session(context: container.mainContext))
+        let session = Session(context: container.mainContext)
+        _session = State(initialValue: session)
+
+        // Runs before the first render so the UI never shows pre-seed /
+        // pre-override state (the debug role/plan args mutate rows the views
+        // have already read if this happens in `.task`).
+        Self.seedDefaultLabelsIfNeeded(context: container.mainContext)
+        #if DEBUG
+        DebugSupport.seedSampleDataIfRequested(context: container.mainContext)
+        DebugSupport.applyAuthSkipIfRequested(session: session, context: container.mainContext)
+        DebugSupport.applyInviteURLIfRequested(session: session)
+        #endif
     }
 
     var body: some Scene {
@@ -41,21 +53,27 @@ struct CamFlowApp: App {
             RootCoordinatorView()
                 .environment(locationService)
                 .environment(session)
-                .task {
-                    seedDefaultLabelsIfNeeded()
-                    #if DEBUG
-                    DebugSupport.seedSampleDataIfRequested(context: container.mainContext)
-                    DebugSupport.applyAuthSkipIfRequested(session: session, context: container.mainContext)
-                    #endif
+                .onOpenURL { handle(url: $0) }
+                // Universal links also arrive via onOpenURL in the SwiftUI
+                // lifecycle; this covers the NSUserActivity delivery path.
+                .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
+                    if let url = activity.webpageURL { handle(url: url) }
                 }
         }
         .modelContainer(container)
     }
 
+    /// Routes incoming invite links (camflow:// and https://camflow.app);
+    /// `RootCoordinatorView` reacts to the pending code.
+    private func handle(url: URL) {
+        if let code = InviteLinks.code(from: url) {
+            session.setPendingInvite(code: code)
+        }
+    }
+
     /// First-launch convenience: a starter set of project status labels.
     @MainActor
-    private func seedDefaultLabelsIfNeeded() {
-        let context = container.mainContext
+    private static func seedDefaultLabelsIfNeeded(context: ModelContext) {
         let count = (try? context.fetchCount(FetchDescriptor<ProjectLabel>())) ?? 0
         guard count == 0 else { return }
         let defaults: [(String, String)] = [
