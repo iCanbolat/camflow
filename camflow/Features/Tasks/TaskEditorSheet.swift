@@ -8,6 +8,7 @@ struct TaskEditorSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    @Environment(Session.self) private var session
 
     @State private var title = ""
     @State private var note = ""
@@ -70,20 +71,32 @@ struct TaskEditorSheet: View {
         let assignee = AssigneePicker.candidates(for: project, context: modelContext)
             .first { $0.id == assigneeID }
 
+        let savedTask: ProjectTask
+        let previousAssigneeID: UUID?
         if let task {
+            previousAssigneeID = task.assignee?.id
             task.title = trimmedTitle
             task.note = note.trimmingCharacters(in: .whitespacesAndNewlines)
             task.dueDate = hasDueDate ? dueDate : nil
             task.assignee = assignee
             store.touch(task)
+            savedTask = task
         } else {
-            store.create(
+            previousAssigneeID = nil
+            savedTask = store.create(
                 title: trimmedTitle,
                 note: note.trimmingCharacters(in: .whitespacesAndNewlines),
                 dueDate: hasDueDate ? dueDate : nil,
                 assignee: assignee,
                 project: project
             )
+        }
+
+        // Notify a newly-assigned member (skip unchanged assignees; self-assignment
+        // is filtered inside the store).
+        if let assignee, assignee.id != previousAssigneeID {
+            NotificationStore(context: modelContext)
+                .notifyTaskAssigned(savedTask, assignee: assignee, by: session.activeMembership)
         }
         dismiss()
     }

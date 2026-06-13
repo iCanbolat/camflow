@@ -40,6 +40,7 @@ struct TaskStore {
     func addComment(to task: ProjectTask, text: String, mentionIDs: [UUID], author: OrgMember?) -> TaskComment {
         let comment = TaskComment(text: text, mentionIDs: mentionIDs, author: author, task: task)
         context.insert(comment)
+        NotificationStore(context: context).notifyComment(comment)
         touch(task)
         return comment
     }

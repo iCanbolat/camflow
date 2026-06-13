@@ -7,6 +7,7 @@ struct ChecklistEditorSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    @Environment(Session.self) private var session
 
     @Query(filter: #Predicate<ChecklistTemplate> { $0.deletedAt == nil }, sort: \ChecklistTemplate.name)
     private var templates: [ChecklistTemplate]
@@ -69,12 +70,16 @@ struct ChecklistEditorSheet: View {
     private func create() {
         let assignee = AssigneePicker.candidates(for: project, context: modelContext)
             .first { $0.id == assigneeID }
-        ChecklistStore(context: modelContext).create(
+        let checklist = ChecklistStore(context: modelContext).create(
             name: effectiveName,
             template: selectedTemplate,
             assignee: assignee,
             project: project
         )
+        if let assignee {
+            NotificationStore(context: modelContext)
+                .notifyChecklistAssigned(checklist, assignee: assignee, by: session.activeMembership)
+        }
         dismiss()
     }
 }
@@ -86,6 +91,7 @@ struct ChecklistDetailView: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    @Environment(Session.self) private var session
 
     @State private var newItemTitle = ""
     @State private var photoPickerItem: ChecklistItem?
@@ -114,9 +120,15 @@ struct ChecklistDetailView: View {
                     AssigneePicker(project: project, selectedID: $assigneeID)
                         .onChange(of: assigneeID) {
                             let store = ChecklistStore(context: modelContext)
-                            checklist.assignee = AssigneePicker.candidates(for: project, context: modelContext)
+                            let previousAssigneeID = checklist.assignee?.id
+                            let newAssignee = AssigneePicker.candidates(for: project, context: modelContext)
                                 .first { $0.id == assigneeID }
+                            checklist.assignee = newAssignee
                             store.touch(checklist)
+                            if let newAssignee, newAssignee.id != previousAssigneeID {
+                                NotificationStore(context: modelContext)
+                                    .notifyChecklistAssigned(checklist, assignee: newAssignee, by: session.activeMembership)
+                            }
                         }
                 }
             }

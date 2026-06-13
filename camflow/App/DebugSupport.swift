@@ -17,6 +17,7 @@ import AVKit
 ///   -debugScreen viewer      → open the photo viewer over the tab bar
 ///   -debugScreen annotation  → open the annotation editor over the tab bar
 ///   -debugScreen billing     → open Plan & Billing; upgradeprompt → the upsell sheet
+///   -debugScreen notifications → the notifications sheet for the current member
 ///   -debugScreen inviteshare → the invite-link share sheet (seeded code CREW2345)
 ///   -debugScreen joinorg     → the join-organization screen for CREW2345
 ///   -inviteURL "camflow://invite/CREW2345" → route an invite link through the
@@ -252,6 +253,38 @@ enum DebugSupport {
         )
         if let firstItem = walkthrough.sortedItems.first {
             checklistStore.toggleItem(firstItem)
+        }
+
+        // Notifications addressed to the current user (owner), so the bell is
+        // populated with per-item control on a fresh seed. These exercise the
+        // real fan-out paths (assignment + comment + mention).
+        let notificationStore = NotificationStore(context: context)
+        let ownerTask = taskStore.create(
+            title: "Review final electrical sign-off",
+            note: "Confirm the panel labels before the inspection.",
+            dueDate: Calendar.current.startOfDay(for: .now).addingTimeInterval(86_400 * 3),
+            assignee: owner,
+            project: riverside
+        )
+        notificationStore.notifyTaskAssigned(ownerTask, assignee: owner, by: mehmet)
+        // Ayşe @mentions the owner on her task → mention notification.
+        taskStore.addComment(
+            to: junctionTask,
+            text: "@Demo User can you approve the updated materials list?",
+            mentionIDs: [owner.id],
+            author: ayse
+        )
+        // Mehmet comments on the owner's task → comment notification.
+        taskStore.addComment(
+            to: ownerTask,
+            text: "Left the inspection report on your desk for review.",
+            mentionIDs: [],
+            author: mehmet
+        )
+        // Leave the assignment read, the two newer ones unread (badge shows 2).
+        let seeded = (try? context.fetch(FetchDescriptor<AppNotification>(predicate: #Predicate { $0.deletedAt == nil }))) ?? []
+        if let assignment = seeded.first(where: { $0.recipient?.id == owner.id && $0.kind == .taskAssigned }) {
+            notificationStore.markRead(assignment)
         }
 
         let riversidePhotos = riverside.activePhotos.sorted { $0.capturedAt > $1.capturedAt }
@@ -498,6 +531,8 @@ enum DebugSupport {
 struct DebugScreenHost: View {
     let kind: String
 
+    @Environment(Session.self) private var session
+
     @Query(filter: #Predicate<Photo> { $0.deletedAt == nil }, sort: \Photo.capturedAt, order: .reverse)
     private var photos: [Photo]
 
@@ -537,6 +572,8 @@ struct DebugScreenHost: View {
                     if let checklist = checklists.first {
                         ChecklistDetailView(checklist: checklist)
                     }
+                case "notifications":
+                    NotificationsView(recipientID: session.activeMembership?.id ?? UUID())
                 case "report":
                     if let project = projects.first(where: { !$0.activePhotos.isEmpty }) {
                         ReportBuilderView(project: project)

@@ -26,6 +26,7 @@ struct CamFlowApp: App {
             Organization.self,
             OrgMember.self,
             TaskComment.self,
+            AppNotification.self,
         ])
         let container: ModelContainer
         do {

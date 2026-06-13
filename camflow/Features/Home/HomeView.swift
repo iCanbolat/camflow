@@ -15,8 +15,13 @@ struct HomeView: View {
     @Query(filter: #Predicate<Report> { $0.deletedAt == nil }, sort: \Report.createdAt, order: .reverse)
     private var allReports: [Report]
 
+    // Persisted notifications for the current member (filtered in Swift).
+    @Query(filter: #Predicate<AppNotification> { $0.deletedAt == nil }, sort: \AppNotification.createdAt, order: .reverse)
+    private var allNotifications: [AppNotification]
+
     @State private var previewingReport: Report?
     @State private var isShowingCreateOrg = false
+    @State private var isShowingNotifications = false
 
     // MARK: - Active-org scoping
 
@@ -69,6 +74,17 @@ struct HomeView: View {
 
     private var isEmpty: Bool {
         photos.isEmpty && completedTasks.isEmpty && reports.isEmpty
+    }
+
+    // MARK: - Notifications
+
+    private var myNotifications: [AppNotification] {
+        guard let memberID = session.activeMembership?.id else { return [] }
+        return allNotifications.filter { $0.recipient?.id == memberID }
+    }
+
+    private var unreadNotificationCount: Int {
+        myNotifications.filter { !$0.isRead }.count
     }
 
     private var sections: [DaySection] {
@@ -134,6 +150,12 @@ struct HomeView: View {
                 ToolbarItem(placement: .principal) {
                     orgSwitcher
                 }
+                ToolbarItem(placement: .topBarTrailing) {
+                    notificationBell
+                }
+            }
+            .sheet(isPresented: $isShowingNotifications) {
+                NotificationsView(recipientID: session.activeMembership?.id ?? UUID())
             }
             .sheet(isPresented: $isShowingCreateOrg) {
                 CreateOrganizationView(isModal: true)
@@ -160,6 +182,29 @@ struct HomeView: View {
                 }
             }
         }
+    }
+
+    // MARK: - Notification bell
+
+    private var notificationBell: some View {
+        Button {
+            isShowingNotifications = true
+        } label: {
+            Image(systemName: "bell")
+                .padding(5)
+                .overlay(alignment: .topTrailing) {
+                    if unreadNotificationCount > 0 {
+                        Text(unreadNotificationCount > 99 ? "99+" : "\(unreadNotificationCount)")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(.red, in: Capsule())
+                            .frame(minWidth: 16)
+                    }
+                }
+        }
+        .accessibilityLabel(Text("Notifications"))
     }
 
     // MARK: - Org switcher
