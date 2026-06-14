@@ -29,6 +29,9 @@ final class Project {
     @Relationship(deleteRule: .cascade, inverse: \Report.project)
     var reports: [Report] = []
 
+    @Relationship(deleteRule: .cascade, inverse: \Page.project)
+    var pages: [Page] = []
+
     @Relationship(deleteRule: .cascade, inverse: \BeforeAfterPair.project)
     var beforeAfterPairs: [BeforeAfterPair] = []
 
@@ -80,5 +83,9 @@ extension Project {
 
     var activeMeasurements: [Measurement] {
         measurements.filter { $0.deletedAt == nil }
+    }
+
+    var activePages: [Page] {
+        pages.filter { $0.deletedAt == nil }
     }
 }

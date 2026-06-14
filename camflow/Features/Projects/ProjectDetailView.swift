@@ -7,7 +7,7 @@ struct ProjectDetailView: View {
     private enum Segment: String, CaseIterable {
         case photos = "Photos"
         case tasks = "Tasks"
-        case reports = "Reports"
+        case docs = "Docs"
         case info = "Info"
     }
 
@@ -56,8 +56,8 @@ struct ProjectDetailView: View {
                 photosSegment
             case .tasks:
                 TasksSegmentView(project: project)
-            case .reports:
-                ReportsSegmentView(project: project)
+            case .docs:
+                DocsSegmentView(project: project)
             case .info:
                 infoSegment
             }

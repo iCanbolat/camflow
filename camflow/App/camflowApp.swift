@@ -20,6 +20,7 @@ struct CamFlowApp: App {
             Checklist.self,
             ChecklistItem.self,
             Report.self,
+            Page.self,
             BeforeAfterPair.self,
             Measurement.self,
             Account.self,

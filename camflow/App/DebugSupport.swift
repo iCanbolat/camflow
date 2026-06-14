@@ -20,6 +20,8 @@ import AVKit
 ///   -debugScreen notifications → the notifications sheet for the current member
 ///   -debugScreen inviteshare → the invite-link share sheet (seeded code CREW2345)
 ///   -debugScreen joinorg     → the join-organization screen for CREW2345
+///   -debugScreen pageeditor  → open the rich-page block editor on the seeded page
+///   -debugScreen pagepdf     → render + preview the seeded page as a PDF
 ///   -inviteURL "camflow://invite/CREW2345" → route an invite link through the
 ///       same parser as onOpenURL (simctl openurl triggers a system open-in-app
 ///       prompt that can't be tapped without UI automation)
@@ -162,6 +164,61 @@ enum DebugSupport {
         if let owner {
             seedSampleTasks(context: context, riverside: riverside, owner: owner, mehmet: mehmet, ayse: ayse)
         }
+
+        seedSamplePages(context: context, project: riverside, author: owner)
+    }
+
+    /// Seeds one rich page (heading, paragraph, checklist, photo grid) so the
+    /// Docs → Pages list, editor, and PDF export are verifiable in the simulator.
+    @MainActor
+    private static func seedSamplePages(context: ModelContext, project: Project, author: OrgMember?) {
+        func heading(_ string: String, level: Int) -> PageBlock {
+            var block = PageBlock.make(.heading)
+            block.text = AttributedString(string)
+            block.headingLevel = level
+            return block
+        }
+        func paragraph(_ string: String) -> PageBlock {
+            var block = PageBlock.make(.paragraph)
+            block.text = AttributedString(string)
+            return block
+        }
+
+        var blocks: [PageBlock] = [
+            heading("Site Progress — Week 3", level: 1),
+            paragraph("Framing is complete on the east wing. Electrical rough-in started Tuesday and is roughly half done. Drywall delivery is scheduled for next Monday."),
+            PageBlock.make(.divider),
+            heading("Open Items", level: 2),
+        ]
+        var checklist = PageBlock.make(.checklist)
+        checklist.checklistItems = [
+            PageChecklistItem(text: "Confirm panel labels", isDone: true),
+            PageChecklistItem(text: "Order drywall materials", isDone: false),
+            PageChecklistItem(text: "Schedule framing inspection", isDone: false),
+        ]
+        blocks.append(checklist)
+
+        let photoIDs = project.activePhotos
+            .filter { !$0.isVideo }
+            .sorted { $0.capturedAt > $1.capturedAt }
+            .prefix(4)
+            .map(\.id)
+        if !photoIDs.isEmpty {
+            blocks.append(heading("Photos", level: 2))
+            var grid = PageBlock.make(.photoGrid)
+            grid.photoIDs = Array(photoIDs)
+            grid.columns = 2
+            grid.squareCrop = true
+            grid.caption = "East wing progress"
+            blocks.append(grid)
+        }
+
+        PageStore(context: context).create(
+            title: "Site Progress — Week 3",
+            document: PageDocument(blocks: blocks),
+            project: project,
+            author: author
+        )
     }
 
     /// Signs the first seeded account in and skips onboarding so simulator runs
@@ -591,6 +648,9 @@ struct DebugScreenHost: View {
     @Query(filter: #Predicate<OrgMember> { $0.deletedAt == nil }, sort: \OrgMember.createdAt)
     private var members: [OrgMember]
 
+    @Query(filter: #Predicate<Page> { $0.deletedAt == nil }, sort: \Page.updatedAt, order: .reverse)
+    private var pages: [Page]
+
     var body: some View {
         NavigationStack {
             Group {
@@ -637,6 +697,12 @@ struct DebugScreenHost: View {
                     }
                 case "joinorg":
                     JoinOrganizationView(code: "CREW2345")
+                case "pageeditor":
+                    if let page = pages.first, let project = page.project {
+                        PageEditorView(page: page, project: project)
+                    }
+                case "pagepdf":
+                    DebugPagePDFView()
                 default:
                     PhotoViewerView(photos: photos)
                 }
@@ -721,6 +787,35 @@ struct DebugReportPDFView: View {
             )
             if let url = await ReportPDFRenderer.render(report: report, project: project, organization: session.activeOrganization) {
                 report.pdfFileName = url.lastPathComponent
+                pdfURL = url
+            }
+        }
+    }
+}
+
+/// Auto-generates a page PDF from the first seeded page so the renderer can be
+/// verified in the simulator without tap automation.
+struct DebugPagePDFView: View {
+    @Environment(\.modelContext) private var modelContext
+    @Environment(Session.self) private var session
+
+    @Query(filter: #Predicate<Page> { $0.deletedAt == nil }, sort: \Page.updatedAt, order: .reverse)
+    private var pages: [Page]
+
+    @State private var pdfURL: URL?
+
+    var body: some View {
+        Group {
+            if let pdfURL {
+                PDFKitView(url: pdfURL)
+            } else {
+                ProgressView()
+            }
+        }
+        .task {
+            guard pdfURL == nil, let page = pages.first, let project = page.project else { return }
+            if let url = await PagePDFRenderer.render(page: page, project: project, organization: session.activeOrganization) {
+                page.pdfFileName = url.lastPathComponent
                 pdfURL = url
             }
         }

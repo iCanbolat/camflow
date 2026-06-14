@@ -8,13 +8,14 @@ nonisolated enum FileStorage {
         case photos = "Photos"
         case branding = "Branding"
         case reports = "Reports"
+        case pages = "Pages"
 
         var url: URL {
             let base: URL
             switch self {
             case .photos, .branding:
                 base = URL.applicationSupportDirectory
-            case .reports:
+            case .reports, .pages:
                 base = URL.documentsDirectory
             }
             let url = base.appending(path: rawValue, directoryHint: .isDirectory)
