@@ -44,8 +44,16 @@ extension AppNotification {
         case .checklistAssigned:
             joined([String(localized: "Checklist assigned to you"), project?.name])
         case .mention, .comment:
-            joined([task?.title, snippet])
+            // Photo mentions have no task; show the photo's context instead.
+            joined([task?.title ?? photoContext, snippet])
         }
+    }
+
+    /// Context line for a comment on a photo/video (no task).
+    private var photoContext: String? {
+        guard photo != nil else { return nil }
+        if let projectName = photo?.project?.name { return projectName }
+        return photo?.isVideo == true ? String(localized: "Video") : String(localized: "Photo")
     }
 
     private var actorName: String {

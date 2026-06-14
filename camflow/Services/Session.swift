@@ -49,6 +49,17 @@ final class Session {
         return OrganizationStore(context: context).organizations(for: account)
     }
 
+    /// The org the current account owns (created), if any. A user owns at most
+    /// one org but may join others, so this is distinct from `organizations`.
+    var ownedOrganization: Organization? {
+        guard let account = currentAccount else { return nil }
+        return OrganizationStore(context: context).ownedOrganization(for: account)
+    }
+
+    /// Whether the current account already owns an organization. Gates the
+    /// "Create Organization" entry point so a user can't own a second one.
+    var ownsOrganization: Bool { ownedOrganization != nil }
+
     var activeOrganization: Organization? {
         OrganizationStore(context: context).organization(id: activeOrganizationID)
     }

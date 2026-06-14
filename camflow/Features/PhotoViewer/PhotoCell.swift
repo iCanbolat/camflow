@@ -52,6 +52,13 @@ struct PhotoCell: View {
                     .padding(4)
                 }
             }
+            .overlay(alignment: .bottomTrailing) {
+                if let author = photo.author {
+                    MemberAvatar(member: author, size: 20)
+                        .overlay { Circle().strokeBorder(.white.opacity(0.85), lineWidth: 1) }
+                        .padding(4)
+                }
+            }
             .task(id: photo.thumbnailFileName) {
                 let fileName = photo.thumbnailFileName
                 thumbnail = await Task.detached {

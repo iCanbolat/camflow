@@ -18,8 +18,6 @@ struct CaptureView: View {
         allProjects.filter { $0.organization?.id == session.activeOrganizationID }
     }
 
-    @AppStorage("quickTagAfterCapture") private var quickTagAfterCapture = false
-
     /// Capture screen mode. Photo/video run on `CameraService`; dual swaps the
     /// whole session for `DualCameraService` (multicam needs its own graph).
     private enum UIMode {
@@ -35,12 +33,20 @@ struct CaptureView: View {
     @State private var hasAutoSuggested = false
     @State private var isShowingProjectPicker = false
     @State private var importItems: [PhotosPickerItem] = []
-    @State private var lastCapturedThumbnail: UIImage?
-    @State private var sessionCaptureCount = 0
+    /// Captured-but-not-yet-saved media for this session. Persisted on "Done".
+    @State private var drafts: [CapturedDraft] = []
+    @State private var isShowingReview = false
+    @State private var isShowingAnnotation = false
+    @State private var isSubmitting = false
+    @State private var isConfirmingDiscard = false
+    /// The inline description bar auto-hides ~2s after each capture (unless the
+    /// field is focused). `descriptionBarTimerID` restarts that countdown.
+    @State private var isDescriptionBarVisible = false
+    @State private var descriptionBarTimerID = 0
+    @FocusState private var isDescriptionFocused: Bool
     @State private var isCapturing = false
     @State private var shutterFlash = false
     @State private var baseZoom: CGFloat = 1
-    @State private var quickTagPhoto: Photo?
     @State private var processingVideoCount = 0
     @State private var upgradeContext: UpgradeContext?
 
@@ -66,6 +72,14 @@ struct CaptureView: View {
                 Color.white.ignoresSafeArea()
             }
 
+            // Tap anywhere outside the field (while editing) to dismiss the keyboard.
+            if isDescriptionFocused {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .ignoresSafeArea()
+                    .onTapGesture { isDescriptionFocused = false }
+            }
+
             VStack {
                 topBar
                 if isRecording {
@@ -77,10 +91,21 @@ struct CaptureView: View {
                         .padding(.top, 8)
                 }
                 Spacer()
+                if !drafts.isEmpty && isDescriptionBarVisible {
+                    descriptionBar
+                        .transition(.opacity)
+                }
                 if activeSessionRunning && !isRecording {
                     modeToggle
                 }
                 bottomBar
+            }
+
+            if isSubmitting {
+                Color.black.opacity(0.45).ignoresSafeArea()
+                ProgressView()
+                    .tint(.white)
+                    .scaleEffect(1.4)
             }
         }
         .statusBarHidden()
@@ -99,14 +124,52 @@ struct CaptureView: View {
         .onChange(of: importItems) {
             Task { await importSelectedPhotos() }
         }
+        .onChange(of: drafts.count) { oldValue, newValue in
+            // A fresh capture re-shows the description bar and restarts its timer.
+            if newValue > oldValue { revealDescriptionBar() }
+        }
+        .onChange(of: isDescriptionFocused) { _, focused in
+            if focused {
+                isDescriptionBarVisible = true
+            } else {
+                descriptionBarTimerID += 1
+            }
+        }
+        .task(id: descriptionBarTimerID) {
+            guard isDescriptionBarVisible else { return }
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled, !isDescriptionFocused else { return }
+            withAnimation(.easeInOut(duration: 0.3)) { isDescriptionBarVisible = false }
+        }
         .sheet(isPresented: $isShowingProjectPicker) {
             ProjectPickerSheet(selectedProject: $selectedProject)
         }
-        .sheet(item: $quickTagPhoto) { photo in
-            TagPickerSheet(photos: [photo])
-        }
         .sheet(item: $upgradeContext) { context in
             UpgradePromptSheet(context: context)
+        }
+        .fullScreenCover(isPresented: $isShowingReview) {
+            DraftReviewView(
+                drafts: $drafts,
+                projectName: selectedProject?.name,
+                onSubmit: { await submitDrafts() }
+            )
+        }
+        .fullScreenCover(isPresented: $isShowingAnnotation) {
+            if let draft = drafts.last {
+                AnnotationEditorView(
+                    loadImage: { draftPhotoImage(draft) },
+                    annotationData: draft.annotationData,
+                    onSave: { draft.annotationData = $0 }
+                )
+            }
+        }
+        .confirmationDialog(
+            "Discard \(drafts.count) capture\(drafts.count == 1 ? "" : "s")?",
+            isPresented: $isConfirmingDiscard,
+            titleVisibility: .visible
+        ) {
+            Button("Discard", role: .destructive) { discardAndDismiss() }
+            Button("Keep Editing", role: .cancel) {}
         }
     }
 
@@ -217,8 +280,17 @@ struct CaptureView: View {
 
     private var topBar: some View {
         HStack(spacing: 12) {
-            CircleIconButton(systemImage: "xmark") { dismiss() }
+            CircleIconButton(systemImage: "xmark") { closeTapped() }
                 .disabled(isRecording)
+
+            PhotosPicker(selection: $importItems, maxSelectionCount: 20, matching: .images) {
+                Image(systemName: "photo.on.rectangle")
+                    .font(.body.bold())
+                    .foregroundStyle(.white)
+                    .frame(width: 40, height: 40)
+                    .background(.white.opacity(0.15), in: Circle())
+            }
+            .disabled(isRecording)
 
             Spacer()
 
@@ -367,87 +439,154 @@ struct CaptureView: View {
         }
     }
 
+    /// After-capture editor for the most recent draft: thumbnail, inline
+    /// description field, and (photos only) a shortcut into the annotation editor.
+    @ViewBuilder
+    private var descriptionBar: some View {
+        if let draft = drafts.last {
+            HStack(spacing: 12) {
+                Image(uiImage: draft.thumbnail)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 44, height: 44)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .onTapGesture { isShowingReview = true }
+
+                TextField("Description", text: Bindable(draft).caption)
+                    .textFieldStyle(.plain)
+                    .foregroundStyle(.white)
+                    .tint(.white)
+                    .submitLabel(.done)
+                    .focused($isDescriptionFocused)
+
+                if !draft.isVideo {
+                    Button {
+                        isShowingAnnotation = true
+                    } label: {
+                        Image(systemName: "scribble.variable")
+                            .font(.title3)
+                            .foregroundStyle(.white)
+                            .frame(width: 40, height: 40)
+                            .background(.white.opacity(0.15), in: Circle())
+                    }
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(.black.opacity(0.55), in: Capsule())
+            .padding(.horizontal, 16)
+            .padding(.bottom, 10)
+        }
+    }
+
     private var bottomBar: some View {
         HStack {
-            PhotosPicker(selection: $importItems, maxSelectionCount: 20, matching: .images) {
-                Image(systemName: "photo.on.rectangle")
-                    .font(.title2)
-                    .foregroundStyle(.white)
-                    .frame(width: 56, height: 56)
-                    .background(.white.opacity(0.15), in: Circle())
-            }
-            .disabled(isRecording)
+            captureStackButton
+                .frame(maxWidth: .infinity, alignment: .leading)
 
-            Spacer()
+            shutterButton
 
-            Button {
-                switch uiMode {
-                case .photo:
-                    Task { await capture() }
-                case .video:
-                    if camera.isRecording {
-                        camera.stopRecording()
-                    } else {
-                        startVideoRecording()
-                    }
-                case .dual:
-                    if dualCamera?.isRecording == true {
-                        dualCamera?.stopRecording()
-                    } else {
-                        startDualRecording()
-                    }
-                }
-            } label: {
-                ZStack {
-                    Circle()
-                        .stroke(.white, lineWidth: 4)
-                        .frame(width: 76, height: 76)
-                    if uiMode == .photo {
-                        Circle()
-                            .fill(.white)
-                            .frame(width: 62, height: 62)
-                            .scaleEffect(isCapturing ? 0.85 : 1)
-                    } else if isRecording {
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(.red)
-                            .frame(width: 32, height: 32)
-                    } else {
-                        Circle()
-                            .fill(.red)
-                            .frame(width: 62, height: 62)
-                    }
-                }
-            }
-            .disabled(!activeSessionRunning || isCapturing)
-            .opacity(activeSessionRunning ? 1 : 0.4)
-            .animation(.spring(duration: 0.2), value: isCapturing)
-            .animation(.spring(duration: 0.2), value: isRecording)
-
-            Spacer()
-
-            ZStack {
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(.white.opacity(0.15))
-                    .frame(width: 56, height: 56)
-                if let thumbnail = lastCapturedThumbnail {
-                    Image(uiImage: thumbnail)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: 56, height: 56)
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
-                    if sessionCaptureCount > 1 {
-                        Text("\(sessionCaptureCount)")
-                            .font(.caption2.bold())
-                            .foregroundStyle(.white)
-                            .padding(5)
-                            .background(.tint, in: Circle())
-                            .offset(x: 22, y: -22)
-                    }
-                }
-            }
+            doneButton
+                .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .padding(.horizontal, 28)
         .padding(.bottom, 24)
+    }
+
+    /// Bottom-left: the captured batch. Tap to review/edit side by side.
+    @ViewBuilder
+    private var captureStackButton: some View {
+        if let thumbnail = drafts.last?.thumbnail {
+            Button {
+                isShowingReview = true
+            } label: {
+                Image(uiImage: thumbnail)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 56, height: 56)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .overlay(alignment: .topTrailing) {
+                        if drafts.count > 1 {
+                            Text("\(drafts.count)")
+                                .font(.caption2.bold())
+                                .foregroundStyle(.white)
+                                .padding(5)
+                                .background(.tint, in: Circle())
+                                .offset(x: 6, y: -6)
+                        }
+                    }
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 10)
+                            .strokeBorder(.white.opacity(0.6), lineWidth: 1)
+                    }
+            }
+            .disabled(isRecording)
+        } else {
+            Color.clear.frame(width: 56, height: 56)
+        }
+    }
+
+    private var shutterButton: some View {
+        Button {
+            switch uiMode {
+            case .photo:
+                Task { await capture() }
+            case .video:
+                if camera.isRecording {
+                    camera.stopRecording()
+                } else {
+                    startVideoRecording()
+                }
+            case .dual:
+                if dualCamera?.isRecording == true {
+                    dualCamera?.stopRecording()
+                } else {
+                    startDualRecording()
+                }
+            }
+        } label: {
+            ZStack {
+                Circle()
+                    .stroke(.white, lineWidth: 4)
+                    .frame(width: 76, height: 76)
+                if uiMode == .photo {
+                    Circle()
+                        .fill(.white)
+                        .frame(width: 62, height: 62)
+                        .scaleEffect(isCapturing ? 0.85 : 1)
+                } else if isRecording {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(.red)
+                        .frame(width: 32, height: 32)
+                } else {
+                    Circle()
+                        .fill(.red)
+                        .frame(width: 62, height: 62)
+                }
+            }
+        }
+        .disabled(!activeSessionRunning || isCapturing)
+        .opacity(activeSessionRunning ? 1 : 0.4)
+        .animation(.spring(duration: 0.2), value: isCapturing)
+        .animation(.spring(duration: 0.2), value: isRecording)
+    }
+
+    /// Bottom-right: submit the whole batch to the selected project.
+    private var doneButton: some View {
+        Button {
+            Task { await submitDrafts() }
+        } label: {
+            Text("Done")
+                .font(.headline)
+                .foregroundStyle(drafts.isEmpty ? .white.opacity(0.4) : .black)
+                .padding(.horizontal, 22)
+                .padding(.vertical, 12)
+                .background(
+                    drafts.isEmpty ? AnyShapeStyle(.white.opacity(0.15)) : AnyShapeStyle(.white),
+                    in: Capsule()
+                )
+        }
+        .disabled(drafts.isEmpty || isSubmitting || isRecording)
     }
 
     // MARK: - Actions
@@ -473,6 +612,12 @@ struct CaptureView: View {
         }
     }
 
+    /// Shows the inline description bar and (re)starts its auto-hide countdown.
+    private func revealDescriptionBar() {
+        withAnimation(.easeInOut(duration: 0.25)) { isDescriptionBarVisible = true }
+        descriptionBarTimerID += 1
+    }
+
     private func capture() async {
         isCapturing = true
         defer { isCapturing = false }
@@ -483,23 +628,17 @@ struct CaptureView: View {
         withAnimation(.easeIn(duration: 0.15).delay(0.1)) { shutterFlash = false }
 
         let location = locationService.lastKnownLocation
-        let store = PhotoStore(context: modelContext)
-        guard let photo = try? await store.createPhoto(
-            imageData: data,
+        let thumbnail = await Task.detached {
+            ImageProcessor.makeThumbnail(from: data).flatMap(UIImage.init(data:))
+        }.value
+
+        drafts.append(CapturedDraft(
+            media: .photo(imageData: data),
+            thumbnail: thumbnail ?? UIImage(data: data) ?? UIImage(),
             latitude: location?.coordinate.latitude,
             longitude: location?.coordinate.longitude,
-            source: .camera,
-            project: selectedProject
-        ) else { return }
-
-        sessionCaptureCount += 1
-        if let thumbData = FileStorage.load(photo.thumbnailFileName, in: .photos) {
-            lastCapturedThumbnail = UIImage(data: thumbData)
-        }
-
-        if quickTagAfterCapture {
-            quickTagPhoto = photo
-        }
+            source: .camera
+        ))
     }
 
     /// Kicks off movie recording; the completion adopts the finished file.
@@ -507,24 +646,22 @@ struct CaptureView: View {
     /// disabled while recording anyway).
     private func startVideoRecording() {
         let location = locationService.lastKnownLocation
-        let project = selectedProject
         camera.startRecording { result in
             guard case .success(let url) = result else { return }
-            Task { await saveVideo(tempURL: url, location: location, project: project) }
+            Task { await addVideoDraft(tempURL: url, location: location) }
         }
     }
 
     private func startDualRecording() {
         guard let dualCamera else { return }
         let location = locationService.lastKnownLocation
-        let project = selectedProject
         dualCamera.startRecording { result in
             switch result {
             case .success(.both(let back, let front)):
-                Task { await compositeDualRecording(back: back, front: front, location: location, project: project) }
+                Task { await compositeDualRecording(back: back, front: front, location: location) }
             case .success(.backOnly(let back)):
                 // Front output failed — keep the footage as a plain video.
-                Task { await saveVideo(tempURL: back, location: location, project: project) }
+                Task { await addVideoDraft(tempURL: back, location: location) }
             case .failure:
                 break
             }
@@ -533,37 +670,38 @@ struct CaptureView: View {
 
     /// Runs the PiP composite without blocking the capture screen — the user
     /// can keep shooting while the pill spins. On composite failure the back
-    /// recording is saved as a plain video so footage is never lost.
-    private func compositeDualRecording(back: URL, front: URL, location: CLLocation?, project: Project?) async {
+    /// recording is kept as a plain video so footage is never lost.
+    private func compositeDualRecording(back: URL, front: URL, location: CLLocation?) async {
         processingVideoCount += 1
         defer { processingVideoCount -= 1 }
         do {
             let composite = try await VideoCompositor.compositePiP(backURL: back, frontURL: front)
             try? FileManager.default.removeItem(at: back)
             try? FileManager.default.removeItem(at: front)
-            await saveVideo(tempURL: composite, location: location, project: project)
+            await addVideoDraft(tempURL: composite, location: location)
         } catch {
             try? FileManager.default.removeItem(at: front)
-            await saveVideo(tempURL: back, location: location, project: project)
+            await addVideoDraft(tempURL: back, location: location)
         }
     }
 
-    private func saveVideo(tempURL: URL, location: CLLocation?, project: Project?) async {
-        let store = PhotoStore(context: modelContext)
-        guard let photo = try? await store.createVideo(
-            tempURL: tempURL,
+    /// Adds a finished recording to the batch as a draft. The temp file stays
+    /// on disk and is moved into the store (on submit) or deleted (on discard) —
+    /// video bytes are never held in memory.
+    private func addVideoDraft(tempURL: URL, location: CLLocation?) async {
+        let info = await Task.detached { () -> (UIImage?, Double?) in
+            let duration = await VideoProcessor.duration(of: tempURL)
+            let thumbnail = await VideoProcessor.makeThumbnail(forVideoAt: tempURL).flatMap(UIImage.init(data:))
+            return (thumbnail, duration)
+        }.value
+
+        drafts.append(CapturedDraft(
+            media: .video(url: tempURL, duration: info.1),
+            thumbnail: info.0 ?? UIImage(),
             latitude: location?.coordinate.latitude,
             longitude: location?.coordinate.longitude,
-            project: project
-        ) else { return }
-
-        sessionCaptureCount += 1
-        if let thumbData = FileStorage.load(photo.thumbnailFileName, in: .photos) {
-            lastCapturedThumbnail = UIImage(data: thumbData)
-        }
-        if quickTagAfterCapture {
-            quickTagPhoto = photo
-        }
+            source: .camera
+        ))
     }
 
     private func importSelectedPhotos() async {
@@ -571,15 +709,95 @@ struct CaptureView: View {
         let items = importItems
         importItems = []
 
-        let store = PhotoStore(context: modelContext)
         for item in items {
             guard let data = try? await item.loadTransferable(type: Data.self) else { continue }
-            guard let photo = try? await store.importPhoto(imageData: data, project: selectedProject) else { continue }
-            sessionCaptureCount += 1
-            if let thumbData = FileStorage.load(photo.thumbnailFileName, in: .photos) {
-                lastCapturedThumbnail = UIImage(data: thumbData)
+            let (metadata, thumbnail) = await Task.detached { () -> (ImageProcessor.ImportedMetadata, UIImage?) in
+                let metadata = ImageProcessor.metadata(from: data)
+                let thumbnail = ImageProcessor.makeThumbnail(from: data).flatMap(UIImage.init(data:))
+                return (metadata, thumbnail)
+            }.value
+
+            drafts.append(CapturedDraft(
+                media: .photo(imageData: data),
+                thumbnail: thumbnail ?? UIImage(data: data) ?? UIImage(),
+                capturedAt: metadata.capturedAt ?? .now,
+                latitude: metadata.latitude,
+                longitude: metadata.longitude,
+                source: .imported
+            ))
+        }
+    }
+
+    // MARK: - Batch submit / discard
+
+    /// Persists every draft to the selected project, applying its caption and
+    /// (photos only) annotation, then closes the camera.
+    private func submitDrafts() async {
+        guard !drafts.isEmpty else { dismiss(); return }
+        isSubmitting = true
+        defer { isSubmitting = false }
+
+        let store = PhotoStore(context: modelContext)
+        let author = session.activeMembership
+        for draft in drafts {
+            let caption = draft.caption.trimmingCharacters(in: .whitespaces)
+            switch draft.media {
+            case .photo(let imageData):
+                guard let photo = try? await store.createPhoto(
+                    imageData: imageData,
+                    capturedAt: draft.capturedAt,
+                    latitude: draft.latitude,
+                    longitude: draft.longitude,
+                    source: draft.source,
+                    project: selectedProject,
+                    author: author
+                ) else { continue }
+                if !caption.isEmpty { photo.caption = caption }
+                photo.annotationData = draft.annotationData
+                store.touch(photo)
+            case .video(let url, _):
+                guard let photo = try? await store.createVideo(
+                    tempURL: url,
+                    capturedAt: draft.capturedAt,
+                    latitude: draft.latitude,
+                    longitude: draft.longitude,
+                    project: selectedProject,
+                    author: author
+                ) else { continue }
+                if !caption.isEmpty { photo.caption = caption }
+                store.touch(photo)
             }
         }
+        drafts.removeAll()
+        dismiss()
+    }
+
+    private func closeTapped() {
+        if drafts.isEmpty {
+            dismiss()
+        } else {
+            isConfirmingDiscard = true
+        }
+    }
+
+    /// Throws away the batch, deleting any pending video temp files so they
+    /// don't leak, then closes the camera.
+    private func discardAndDismiss() {
+        for draft in drafts {
+            if let url = draft.videoURL {
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
+        drafts.removeAll()
+        dismiss()
+    }
+
+    /// Decoded full-resolution image for a photo draft (annotation editor input).
+    private func draftPhotoImage(_ draft: CapturedDraft) -> UIImage? {
+        if case .photo(let data) = draft.media {
+            return UIImage(data: data)
+        }
+        return nil
     }
 }
 

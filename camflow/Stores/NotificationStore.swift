@@ -100,6 +100,35 @@ struct NotificationStore {
         }
     }
 
+    /// Fans a freshly created photo/video comment out to mentioned members,
+    /// excluding the author. Photos have no assignee, so (unlike tasks) there's
+    /// no comment-to-assignee fan-out — only mentions. Members are looked up by
+    /// id rather than via the photo's project, so mentions work on unassigned
+    /// photos too (the composer's candidates come from the active org).
+    func notifyPhotoComment(_ comment: PhotoComment) {
+        guard let photo = comment.photo else { return }
+        let author = comment.author
+
+        for memberID in comment.mentionIDs where memberID != author?.id {
+            guard let member = member(id: memberID) else { continue }
+            context.insert(AppNotification(
+                kind: .mention,
+                recipient: member,
+                actor: author,
+                photo: photo,
+                project: photo.project,
+                bodySnippet: comment.text
+            ))
+        }
+    }
+
+    private func member(id: UUID) -> OrgMember? {
+        let descriptor = FetchDescriptor<OrgMember>(
+            predicate: #Predicate { $0.id == id && $0.deletedAt == nil }
+        )
+        return (try? context.fetch(descriptor))?.first
+    }
+
     // MARK: - Dedupe
 
     /// Whether a non-deleted notification of this kind already exists for the

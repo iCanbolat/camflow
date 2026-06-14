@@ -1,14 +1,12 @@
 import SwiftUI
 
 struct SettingsView: View {
-    @AppStorage("quickTagAfterCapture") private var quickTagAfterCapture = false
     @AppStorage("brandedExportDefault") private var brandedExportDefault = true
     @AppStorage("photoQuality") private var photoQuality = "high"
 
     var body: some View {
         Form {
             Section("Capture") {
-                Toggle("Quick-tag after capture", isOn: $quickTagAfterCapture)
                 Picker("Photo quality", selection: $photoQuality) {
                     Text("High").tag("high")
                     Text("Medium").tag("medium")

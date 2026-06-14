@@ -7,10 +7,24 @@ import SwiftData
 struct OrganizationStore {
     let context: ModelContext
 
+    /// The single organization `account` owns (created), if any. A user may join
+    /// many orgs but owns at most one — this backs that guard.
+    func ownedOrganization(for account: Account) -> Organization? {
+        let accountID = account.id
+        let descriptor = FetchDescriptor<Organization>(
+            predicate: #Predicate { $0.ownerAccountID == accountID && $0.deletedAt == nil }
+        )
+        return (try? context.fetch(descriptor))?.first
+    }
+
     /// Creates an organization owned by `account` and inserts the owner's member
     /// row so the org shows up in the account's switcher immediately.
+    /// A user owns at most one org: if `account` already owns one, that existing
+    /// org is returned untouched rather than creating a duplicate.
     @discardableResult
     func create(name: String, owner account: Account) -> Organization {
+        if let existing = ownedOrganization(for: account) { return existing }
+
         let org = Organization(name: name, ownerAccountID: account.id)
         context.insert(org)
 

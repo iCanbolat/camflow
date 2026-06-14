@@ -187,7 +187,7 @@ struct MemberRow: View {
                         Text(verbatim: "·")
                     }
                     if !member.phoneNumber.isEmpty {
-                        Text(member.phoneNumber)
+                        Text(PhoneNumbers.displayFormatted(member.phoneNumber))
                     }
                 }
                 .font(.caption)
@@ -248,6 +248,7 @@ struct MemberEditorSheet: View {
 
     private var canSave: Bool {
         !name.trimmingCharacters(in: .whitespaces).isEmpty
+            && PhoneNumbers.isAcceptable(phoneNumber)
     }
 
     var body: some View {
@@ -264,9 +265,7 @@ struct MemberEditorSheet: View {
                 Section("Member") {
                     TextField("Full name", text: $name)
                         .textContentType(.name)
-                    TextField("Phone number (optional)", text: $phoneNumber)
-                        .textContentType(.telephoneNumber)
-                        .keyboardType(.phonePad)
+                    PhoneNumberField("Phone number (optional)", text: $phoneNumber)
                     TextField("Title (e.g. Site Foreman)", text: $title)
                         .textContentType(.jobTitle)
                 }

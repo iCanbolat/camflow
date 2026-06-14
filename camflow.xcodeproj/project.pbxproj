@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		CAF100000000000000000001 /* PhoneNumberKit in Frameworks */ = {isa = PBXBuildFile; productRef = CAF100000000000000000002 /* PhoneNumberKit */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		517776A42FD9A28500D3C5C1 /* camflow.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = camflow.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -23,6 +27,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				CAF100000000000000000001 /* PhoneNumberKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -65,6 +70,7 @@
 			);
 			name = camflow;
 			packageProductDependencies = (
+				CAF100000000000000000002 /* PhoneNumberKit */,
 			);
 			productName = camflow;
 			productReference = 517776A42FD9A28500D3C5C1 /* camflow.app */;
@@ -94,6 +100,9 @@
 			);
 			mainGroup = 5177769B2FD9A28500D3C5C1;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				CAF100000000000000000003 /* XCRemoteSwiftPackageReference "PhoneNumberKit" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 517776A52FD9A28500D3C5C1 /* Products */;
 			projectDirPath = "";
@@ -252,6 +261,7 @@
 				CODE_SIGN_ENTITLEMENTS = camflow.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = R48XD3BPP4;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Info.plist;
@@ -288,6 +298,7 @@
 				CODE_SIGN_ENTITLEMENTS = camflow.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = R48XD3BPP4;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Info.plist;
@@ -338,6 +349,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		CAF100000000000000000003 /* XCRemoteSwiftPackageReference "PhoneNumberKit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/PhoneNumberKit/PhoneNumberKit";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 5.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		CAF100000000000000000002 /* PhoneNumberKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CAF100000000000000000003 /* XCRemoteSwiftPackageReference "PhoneNumberKit" */;
+			productName = PhoneNumberKit;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 5177769C2FD9A28500D3C5C1 /* Project object */;
 }

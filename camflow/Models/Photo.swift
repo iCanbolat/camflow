@@ -38,7 +38,14 @@ final class Photo {
 
     var project: Project?
 
+    /// The member who captured (or imported) this photo. Optional to-one with no
+    /// inverse — same pattern as `TaskComment.author`; existing rows migrate as NULL.
+    var author: OrgMember?
+
     var tags: [Tag] = []
+
+    @Relationship(deleteRule: .cascade, inverse: \PhotoComment.photo)
+    var comments: [PhotoComment] = []
 
     var createdAt: Date
     var updatedAt: Date
@@ -55,7 +62,8 @@ final class Photo {
         source: Source = .camera,
         mediaType: MediaType = .photo,
         durationSeconds: Double? = nil,
-        project: Project? = nil
+        project: Project? = nil,
+        author: OrgMember? = nil
     ) {
         self.id = UUID()
         self.fileName = fileName
@@ -69,6 +77,7 @@ final class Photo {
         self.mediaTypeRaw = mediaType.rawValue
         self.durationSeconds = durationSeconds
         self.project = project
+        self.author = author
         self.createdAt = .now
         self.updatedAt = .now
         self.deletedAt = nil
@@ -78,6 +87,13 @@ final class Photo {
 
 extension Photo {
     var isVideo: Bool { mediaType == .video }
+
+    /// Non-deleted comments, oldest-first (matches `ProjectTask.activeComments`).
+    var activeComments: [PhotoComment] {
+        comments
+            .filter { $0.deletedAt == nil }
+            .sorted { $0.createdAt < $1.createdAt }
+    }
 
     /// "m:ss" badge text for grid cells and the viewer info bar.
     var formattedDuration: String? {

@@ -1,15 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
-<dict>
-	<!-- Universal links for invite codes. Requires the AASA file live at
-	     https://camflow.app/.well-known/apple-app-site-association with the
-	     real Team ID. For on-device testing before the CDN picks it up, append
-	     ?mode=developer and enable Developer Mode's associated-domains switch. -->
-	<key>com.apple.developer.associated-domains</key>
-	<array>
-		<string>applinks:camflow.app</string>
-		<string>applinks:www.camflow.app</string>
-	</array>
-</dict>
+<dict/>
 </plist>

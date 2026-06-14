@@ -33,6 +33,8 @@ final class AppNotification {
     var task: ProjectTask?
     /// Source for checklist assignments.
     var checklist: Checklist?
+    /// Navigation target for a mention on a photo/video comment.
+    var photo: Photo?
     /// Navigation fallback (also set for assignments).
     var project: Project?
     /// Snapshot of the comment text for `.mention` / `.comment`.
@@ -52,6 +54,7 @@ final class AppNotification {
         actor: OrgMember? = nil,
         task: ProjectTask? = nil,
         checklist: Checklist? = nil,
+        photo: Photo? = nil,
         project: Project? = nil,
         bodySnippet: String = "",
         createdAt: Date = .now
@@ -62,6 +65,7 @@ final class AppNotification {
         self.actor = actor
         self.task = task
         self.checklist = checklist
+        self.photo = photo
         self.project = project
         self.bodySnippet = bodySnippet
         self.isRead = false

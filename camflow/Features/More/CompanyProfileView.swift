@@ -54,8 +54,7 @@ struct CompanyProfileView: View {
 
                 Section("Company") {
                     TextField("Company name", text: $organization.name)
-                    TextField("Phone", text: $organization.phone)
-                        .keyboardType(.phonePad)
+                    PhoneNumberField("Phone", text: $organization.phone)
                     TextField("Email", text: $organization.email)
                         .keyboardType(.emailAddress)
                         .textInputAutocapitalization(.never)

@@ -26,39 +26,37 @@ struct NotificationsView: View {
 
     var body: some View {
         NavigationStack(path: $path) {
-            Group {
-                if notifications.isEmpty {
-                    ContentUnavailableView {
-                        Label("You're all caught up", systemImage: "bell.slash")
-                    } description: {
-                        Text("Assignments, mentions, and comments that involve you will show up here.")
+            listContent
+                .navigationTitle("Notifications")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button("Mark all read") { markAllRead() }
+                            .disabled(!hasUnread)
                     }
-                } else {
-                    List(notifications) { note in
-                        row(note)
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { dismiss() }
                     }
-                    .listStyle(.plain)
                 }
-            }
-            .navigationTitle("Notifications")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Mark all read") { markAllRead() }
-                        .disabled(!hasUnread)
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                }
-            }
-            .navigationDestination(for: ProjectTask.self) { task in
-                TaskDetailView(task: task)
-            }
-            .navigationDestination(for: Project.self) { project in
-                ProjectDetailView(project: project)
-            }
+                .modifier(NotificationDestinations())
         }
         .presentationDetents([.medium, .large])
+    }
+
+    @ViewBuilder
+    private var listContent: some View {
+        if notifications.isEmpty {
+            ContentUnavailableView {
+                Label("You're all caught up", systemImage: "bell.slash")
+            } description: {
+                Text("Assignments, mentions, and comments that involve you will show up here.")
+            }
+        } else {
+            List(notifications) { note in
+                row(note)
+            }
+            .listStyle(.plain)
+        }
     }
 
     private func row(_ note: AppNotification) -> some View {
@@ -128,6 +126,8 @@ struct NotificationsView: View {
         NotificationStore(context: modelContext).markRead(note)
         if let task = note.task {
             path.append(task)
+        } else if let photo = note.photo {
+            path.append(photo)
         } else if let project = note.project {
             path.append(project)
         }
@@ -135,5 +135,23 @@ struct NotificationsView: View {
 
     private func markAllRead() {
         NotificationStore(context: modelContext).markAllRead(notifications)
+    }
+}
+
+/// Tap-through destinations for the notification list. Kept in its own modifier
+/// so the chain type-checks in a minimal scope (three `navigationDestination`s
+/// inline in the view body trips the SwiftUI type-checker).
+private struct NotificationDestinations: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .navigationDestination(for: ProjectTask.self) { task in
+                TaskDetailView(task: task)
+            }
+            .navigationDestination(for: Project.self) { project in
+                ProjectDetailView(project: project)
+            }
+            .navigationDestination(for: Photo.self) { photo in
+                PhotoViewerView(photos: [photo], initialIndex: 0)
+            }
     }
 }

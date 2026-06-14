@@ -223,10 +223,13 @@ struct HomeView: View {
                 }
             }
             Divider()
-            Button {
-                isShowingCreateOrg = true
-            } label: {
-                Label("Create Organization", systemImage: "plus")
+            // A user owns at most one org; once they do, the create entry is hidden.
+            if !session.ownsOrganization {
+                Button {
+                    isShowingCreateOrg = true
+                } label: {
+                    Label("Create Organization", systemImage: "plus")
+                }
             }
             Button {
                 // Future: accept an invite to join another org from the cloud phase.

@@ -131,6 +131,12 @@ struct CreateOrganizationView: View {
     private func create() {
         guard let account = session.currentAccount else { return }
         let store = OrganizationStore(context: modelContext)
+        // One owned org per user: if they already own one, just activate it.
+        if let existing = store.ownedOrganization(for: account) {
+            session.setActiveOrg(existing)
+            if isModal { dismiss() }
+            return
+        }
         let org = store.create(name: trimmedName, owner: account)
 
         if let logoImage, let data = logoImage.pngData() {

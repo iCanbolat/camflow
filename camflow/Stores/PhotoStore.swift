@@ -15,7 +15,8 @@ struct PhotoStore {
         latitude: Double? = nil,
         longitude: Double? = nil,
         source: Photo.Source,
-        project: Project?
+        project: Project?,
+        author: OrgMember? = nil
     ) async throws -> Photo {
         let id = UUID()
         let fileName = "\(id.uuidString).jpg"
@@ -35,7 +36,8 @@ struct PhotoStore {
             latitude: latitude,
             longitude: longitude,
             source: source,
-            project: project
+            project: project,
+            author: author
         )
         photo.id = id
         context.insert(photo)
@@ -55,7 +57,8 @@ struct PhotoStore {
         capturedAt: Date = .now,
         latitude: Double? = nil,
         longitude: Double? = nil,
-        project: Project?
+        project: Project?,
+        author: OrgMember? = nil
     ) async throws -> Photo {
         let id = UUID()
         let fileName = "\(id.uuidString).mov"
@@ -79,7 +82,8 @@ struct PhotoStore {
             source: .camera,
             mediaType: .video,
             durationSeconds: duration,
-            project: project
+            project: project,
+            author: author
         )
         photo.id = id
         context.insert(photo)
@@ -92,7 +96,7 @@ struct PhotoStore {
 
     /// Imports a library photo, pulling capture date and GPS from EXIF.
     @discardableResult
-    func importPhoto(imageData: Data, project: Project?) async throws -> Photo {
+    func importPhoto(imageData: Data, project: Project?, author: OrgMember? = nil) async throws -> Photo {
         let metadata = await Task.detached { ImageProcessor.metadata(from: imageData) }.value
         return try await createPhoto(
             imageData: imageData,
@@ -100,7 +104,8 @@ struct PhotoStore {
             latitude: metadata.latitude,
             longitude: metadata.longitude,
             source: .imported,
-            project: project
+            project: project,
+            author: author
         )
     }
 
@@ -112,5 +117,20 @@ struct PhotoStore {
     func softDelete(_ photo: Photo) {
         photo.deletedAt = .now
         touch(photo)
+        
+    }
+
+    @discardableResult
+    func addComment(to photo: Photo, text: String, mentionIDs: [UUID], author: OrgMember?) -> PhotoComment {
+        let comment = PhotoComment(text: text, mentionIDs: mentionIDs, author: author, photo: photo)
+        context.insert(comment)
+        NotificationStore(context: context).notifyPhotoComment(comment)
+        touch(photo)
+        return comment
+    }
+
+    func softDeleteComment(_ comment: PhotoComment) {
+        comment.deletedAt = .now
+        comment.updatedAt = .now
     }
 }

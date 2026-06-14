@@ -58,8 +58,32 @@ enum DebugSupport {
         context.insert(account)
 
         let orgStore = OrganizationStore(context: context)
+        // The demo account OWNS the primary org. A user owns at most one org, so
+        // the secondary is owned by a separate synthetic account and the demo
+        // account merely JOINS it as a member — that's what the switcher shows.
         let primary = orgStore.create(name: "Demo Construction Co.", owner: account)
-        let secondary = orgStore.create(name: "Skyline Renovations", owner: account)
+
+        let skylineOwner = Account(
+            email: "owner@skyline.app",
+            displayName: "Skyline Owner",
+            provider: .email,
+            passwordHash: sha256("password"),
+            colorHex: TagPalette.colors[2]
+        )
+        context.insert(skylineOwner)
+        let secondary = orgStore.create(name: "Skyline Renovations", owner: skylineOwner)
+        let demoInSecondary = OrgMember(
+            name: account.displayName,
+            phoneNumber: "",
+            title: String(localized: "Manager"),
+            role: .manager,
+            status: .active,
+            colorHex: account.colorHex,
+            accountID: account.id
+        )
+        context.insert(demoInSecondary)
+        demoInSecondary.organization = secondary
+
         let owner = primary.activeMembers.first { $0.role == .owner }
 
         let labels = (try? context.fetch(FetchDescriptor<ProjectLabel>(sortBy: [SortDescriptor(\.sortOrder)]))) ?? []
@@ -94,8 +118,6 @@ enum DebugSupport {
         context.insert(skylineLoft)
         skylineLoft.organization = secondary
 
-        seedSamplePhotos(context: context, riverside: riverside, warehouse: warehouse)
-
         // Primary org demos the Pro tier and one member per role; Skyline stays
         // Basic (1 project + owner) so both plan limits are easy to exercise.
         primary.planTier = .pro
@@ -127,6 +149,14 @@ enum DebugSupport {
             role: .admin,
             projects: [riverside, warehouse],
             organization: primary
+        )
+
+        // Seeded after members so each sample photo/video gets an author.
+        seedSamplePhotos(
+            context: context,
+            riverside: riverside,
+            warehouse: warehouse,
+            authors: [owner, mehmet, ayse].compactMap { $0 }
         )
 
         if let owner {
@@ -299,7 +329,7 @@ enum DebugSupport {
     }
 
     @MainActor
-    private static func seedSamplePhotos(context: ModelContext, riverside: Project, warehouse: Project) {
+    private static func seedSamplePhotos(context: ModelContext, riverside: Project, warehouse: Project, authors: [OrgMember] = []) {
         let samples: [(String, CGFloat, Project?)] = [
             ("Foundation", 0.08, riverside),
             ("Framing", 0.35, riverside),
@@ -329,6 +359,11 @@ enum DebugSupport {
             )
             photo.id = id
 
+            // Round-robin authorship so distinct avatars/names are visible.
+            if !authors.isEmpty {
+                photo.author = authors[offset % authors.count]
+            }
+
             // First sample arrives pre-annotated so overlay rendering is visible.
             if offset == 0 {
                 photo.annotationData = AnnotationDocument(shapes: [
@@ -340,7 +375,7 @@ enum DebugSupport {
             context.insert(photo)
         }
 
-        seedSampleVideo(context: context, project: riverside)
+        seedSampleVideo(context: context, project: riverside, author: authors.first)
         seedSampleMeasurement(context: context, project: riverside)
     }
 
@@ -385,7 +420,7 @@ enum DebugSupport {
     /// page, share, exclusions) are verifiable in the simulator, where the
     /// camera doesn't exist. Runs async; the @Query-driven UI picks it up.
     @MainActor
-    private static func seedSampleVideo(context: ModelContext, project: Project) {
+    private static func seedSampleVideo(context: ModelContext, project: Project, author: OrgMember? = nil) {
         Task {
             guard let tempURL = await Task.detached(operation: { makeSampleVideo() }).value else { return }
 
@@ -408,7 +443,8 @@ enum DebugSupport {
                 source: .camera,
                 mediaType: .video,
                 durationSeconds: duration,
-                project: project
+                project: project,
+                author: author
             )
             video.id = id
             context.insert(video)
@@ -531,6 +567,7 @@ enum DebugSupport {
 struct DebugScreenHost: View {
     let kind: String
 
+    @Environment(\.modelContext) private var modelContext
     @Environment(Session.self) private var session
 
     @Query(filter: #Predicate<Photo> { $0.deletedAt == nil }, sort: \Photo.capturedAt, order: .reverse)
@@ -560,7 +597,7 @@ struct DebugScreenHost: View {
                 switch kind {
                 case "annotation":
                     if let photo = photos.first {
-                        AnnotationEditorView(photo: photo)
+                        AnnotationEditorView(photo: photo, context: modelContext)
                     }
                 case "share":
                     ShareOptionsSheet(photos: Array(photos.prefix(1)))

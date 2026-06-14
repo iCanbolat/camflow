@@ -12,6 +12,7 @@ struct PhotoViewerView: View {
     @State private var isShowingTagPicker = false
     @State private var isShowingShareSheet = false
     @State private var isShowingProjectPicker = false
+    @State private var isShowingComments = false
     @State private var isEditingCaption = false
     @State private var captionInput = ""
     @State private var isConfirmingDelete = false
@@ -26,6 +27,16 @@ struct PhotoViewerView: View {
 
     private var currentPhoto: Photo? {
         photos.indices.contains(index) ? photos[index] : nil
+    }
+
+    /// Subtitle under the project name: "<author> · <date>" (or just the date
+    /// for photos captured before authors were tracked).
+    private func authorAndDate(for photo: Photo) -> String {
+        let date = photo.capturedAt.formatted(.dateTime.day().month().hour().minute())
+        if let name = photo.author?.name, !name.isEmpty {
+            return "\(name) · \(date)"
+        }
+        return date
     }
 
     var body: some View {
@@ -43,18 +54,26 @@ struct PhotoViewerView: View {
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
         .background(.black)
+        .toolbar(.hidden, for: .tabBar)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.black.opacity(0.6), for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .principal) {
                 if let photo = currentPhoto {
-                    VStack(spacing: 0) {
-                        Text(photo.project?.name ?? String(localized: "Unassigned"))
-                            .font(.subheadline.weight(.semibold))
-                        Text(photo.capturedAt, format: .dateTime.day().month().hour().minute())
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
+                    HStack(spacing: 8) {
+                        if let author = photo.author {
+                            MemberAvatar(member: author, size: 26)
+                        }
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text(photo.project?.name ?? String(localized: "Unassigned"))
+                                .font(.subheadline.weight(.semibold))
+                                .lineLimit(1)
+                            Text(authorAndDate(for: photo))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
                     }
                 }
             }
@@ -66,6 +85,13 @@ struct PhotoViewerView: View {
                         Image(systemName: "pencil.tip.crop.circle")
                     }
                 }
+                Button {
+                    isShowingComments = true
+                } label: {
+                    Image(systemName: (currentPhoto?.activeComments.isEmpty == false)
+                          ? "bubble.left.fill" : "bubble.left")
+                }
+                .accessibilityLabel(Text("Comments"))
                 Menu {
                     Button {
                         isShowingTagPicker = true
@@ -106,7 +132,7 @@ struct PhotoViewerView: View {
         }
         .fullScreenCover(isPresented: $isShowingAnnotationEditor) {
             if let photo = currentPhoto {
-                AnnotationEditorView(photo: photo)
+                AnnotationEditorView(photo: photo, context: modelContext)
             }
         }
         .sheet(isPresented: $isShowingTagPicker) {
@@ -117,6 +143,11 @@ struct PhotoViewerView: View {
         .sheet(isPresented: $isShowingShareSheet) {
             if let photo = currentPhoto {
                 ShareOptionsSheet(photos: [photo])
+            }
+        }
+        .sheet(isPresented: $isShowingComments) {
+            if let photo = currentPhoto {
+                PhotoCommentsSheet(photo: photo)
             }
         }
         .sheet(isPresented: $isShowingProjectPicker) {
@@ -177,6 +208,9 @@ struct PhotoViewerView: View {
                 }
                 if photo.annotationData != nil {
                     Label("Annotated", systemImage: "pencil.tip")
+                }
+                if !photo.activeComments.isEmpty {
+                    Label("\(photo.activeComments.count)", systemImage: "bubble.left.fill")
                 }
                 if photo.source == .imported {
                     Label("Imported", systemImage: "square.and.arrow.down")
