@@ -47,8 +47,16 @@ struct TeamView: View {
                             Text("Invite your crew with a shareable link and assign them to projects.")
                         } actions: {
                             if session.can(.manageTeam) {
-                                Button("Invite Member") { startInvite() }
-                                    .buttonStyle(.borderedProminent)
+                                Button { startInvite() } label: {
+                                    // Explicit HStack rather than `Label`: in a
+                                    // List/ContentUnavailableView context the
+                                    // default label style can drop the glyph.
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "plus")
+                                        Text("Invite Member")
+                                    }
+                                }
+                                .buttonStyle(.borderedProminent)
                             }
                         }
                     } else {

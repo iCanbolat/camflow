@@ -66,6 +66,27 @@ struct AuthView: View {
 
                 Button("Have an invite code?") { isShowingCodeEntry = true }
                     .font(.footnote.weight(.medium))
+
+                #if DEBUG
+                // A plain Xcode Run passes no launch arguments, so the store is
+                // empty and the seeded demo account doesn't exist — manual
+                // demo sign-in then fails with "No account found". This seeds it
+                // on demand and signs in through the normal auth path.
+                Button("Sign in as demo (DEBUG)") {
+                    DebugSupport.seedSampleData(context: modelContext)
+                    email = DebugSupport.demoEmail
+                    password = DebugSupport.demoPassword
+                    authenticate {
+                        try await service.signIn(
+                            email: DebugSupport.demoEmail,
+                            password: DebugSupport.demoPassword
+                        )
+                    }
+                }
+                .font(.footnote.weight(.medium))
+                .tint(.secondary)
+                .disabled(isWorking)
+                #endif
             }
             .padding(.horizontal, 28)
             .padding(.vertical, 40)

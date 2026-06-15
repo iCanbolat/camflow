@@ -326,19 +326,14 @@ struct ProjectDetailView: View {
         Form {
             if project.hasCoordinate {
                 Section {
-                    let coordinate = CLLocationCoordinate2D(
-                        latitude: project.latitude!,
-                        longitude: project.longitude!
+                    MapSnapshotView(
+                        coordinate: CLLocationCoordinate2D(
+                            latitude: project.latitude!,
+                            longitude: project.longitude!
+                        ),
+                        title: project.name
                     )
-                    Map(initialPosition: .region(MKCoordinateRegion(
-                        center: coordinate,
-                        latitudinalMeters: 600,
-                        longitudinalMeters: 600
-                    ))) {
-                        Marker(project.name, coordinate: coordinate)
-                    }
                     .frame(height: 160)
-                    .allowsHitTesting(false)
                     .listRowInsets(EdgeInsets())
                 }
             }

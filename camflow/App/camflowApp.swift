@@ -6,6 +6,7 @@ import CoreServices
 struct CamFlowApp: App {
     @State private var locationService = LocationService()
     @State private var session: Session
+    @State private var showSplash = true
 
     private let container: ModelContainer
 
@@ -53,15 +54,25 @@ struct CamFlowApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RootCoordinatorView()
-                .environment(locationService)
-                .environment(session)
-                .onOpenURL { handle(url: $0) }
-                // Universal links also arrive via onOpenURL in the SwiftUI
-                // lifecycle; this covers the NSUserActivity delivery path.
-                .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
-                    if let url = activity.webpageURL { handle(url: url) }
+            ZStack {
+                RootCoordinatorView()
+                    .environment(locationService)
+                    .environment(session)
+                    .onOpenURL { handle(url: $0) }
+                    // Universal links also arrive via onOpenURL in the SwiftUI
+                    // lifecycle; this covers the NSUserActivity delivery path.
+                    .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
+                        if let url = activity.webpageURL { handle(url: url) }
+                    }
+
+                if showSplash {
+                    SplashView {
+                        withAnimation(.easeInOut(duration: 0.45)) { showSplash = false }
+                    }
+                    .transition(.opacity)
+                    .zIndex(1)
                 }
+            }
         }
         .modelContainer(container)
     }

@@ -68,8 +68,16 @@ struct ProjectListView: View {
                         } description: {
                             Text("Create a project for each job site to keep photos organized.")
                         } actions: {
-                            Button("New Project") { startNewProject() }
-                                .buttonStyle(.borderedProminent)
+                            Button { startNewProject() } label: {
+                                // Explicit HStack rather than `Label`: in a List/
+                                // ContentUnavailableView context the default label
+                                // style can drop the glyph and leave a blank gap.
+                                HStack(spacing: 6) {
+                                    Image(systemName: "plus")
+                                    Text("New Project")
+                                }
+                            }
+                            .buttonStyle(.borderedProminent)
                         }
                     }
                 } else if isShowingMap {

@@ -434,7 +434,13 @@ struct HomeView: View {
             Button {
                 isShowingCreateProject = true
             } label: {
-                Label("New Project", systemImage: "plus")
+                // Explicit HStack rather than `Label`: inside a `List` row the
+                // default label style can drop the icon glyph while keeping its
+                // reserved width, leaving a blank gap before the title.
+                HStack(spacing: 6) {
+                    Image(systemName: "plus")
+                    Text("New Project")
+                }
             }
             .buttonStyle(.borderedProminent)
             .padding(.top, 4)

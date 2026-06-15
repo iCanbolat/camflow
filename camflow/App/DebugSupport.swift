@@ -31,6 +31,10 @@ import AVKit
 /// `-seedSampleData YES` implies `-skipAuth YES` so screenshot runs land in-app;
 /// pass an explicit `-skipAuth NO` to seed but still go through AuthView.
 enum DebugSupport {
+    /// Credentials of the seeded demo account (see `seedSampleData`).
+    static let demoEmail = "demo@camflow.app"
+    static let demoPassword = "password"
+
     static var initialTab: AppTab? {
         switch UserDefaults.standard.string(forKey: "initialTab") {
         case "projects": .projects
@@ -48,7 +52,17 @@ enum DebugSupport {
     @MainActor
     static func seedSampleDataIfRequested(context: ModelContext) {
         guard UserDefaults.standard.bool(forKey: "seedSampleData") else { return }
+        seedSampleData(context: context)
+    }
 
+    /// Inserts the demo account, organizations, projects and sample content.
+    /// Idempotent: a no-op once any project exists. Exposed (not flag-gated) so
+    /// the DEBUG "Sign in as demo" affordance on `AuthView` can guarantee the
+    /// demo credentials exist regardless of launch arguments — a plain Xcode Run
+    /// passes none, so without this the AuthView store is empty and demo sign-in
+    /// fails with "No account found".
+    @MainActor
+    static func seedSampleData(context: ModelContext) {
         let count = (try? context.fetchCount(FetchDescriptor<Project>())) ?? 0
         guard count == 0 else { return }
 
@@ -194,6 +208,127 @@ enum DebugSupport {
         }
 
         seedSamplePages(context: context, project: riverside, author: owner)
+
+        // The demo account joins two more orgs as Admin and Standard so every
+        // role is reachable by switching orgs in the Home switcher: Owner in the
+        // primary, Manager in Skyline, plus these two. Each carries a project
+        // with mock photos and tasks assigned to the demo member, so per-role
+        // permissions and the "assigned to you" surfaces are testable.
+        seedRoleTrialOrg(
+            context: context, demo: account, role: .admin,
+            ownerEmail: "owner@northside.app", ownerName: "Northside Owner",
+            orgName: "Northside Builders",
+            project: ("Maple Street Duplex", "Acıbadem, Üsküdar, İstanbul", 41.0095, 29.0460),
+            labels: labels, hue: 0.62
+        )
+        seedRoleTrialOrg(
+            context: context, demo: account, role: .standard,
+            ownerEmail: "owner@harborpoint.app", ownerName: "Harbor Point Owner",
+            orgName: "Harbor Point Co.",
+            project: ("Pier 7 Refit", "Karaköy Rıhtımı, Beyoğlu, İstanbul", 41.0220, 28.9790),
+            labels: labels, hue: 0.04
+        )
+    }
+
+    /// Seeds an org the demo account JOINS with `role` (a synthetic account owns
+    /// it), plus one project with mock photos and demo-assigned tasks. Used to
+    /// make the Admin and Standard roles exercisable via the org switcher.
+    @MainActor
+    private static func seedRoleTrialOrg(
+        context: ModelContext,
+        demo: Account,
+        role: OrgMember.Role,
+        ownerEmail: String,
+        ownerName: String,
+        orgName: String,
+        project: (name: String, address: String, lat: Double, lon: Double),
+        labels: [ProjectLabel],
+        hue: CGFloat
+    ) {
+        let orgStore = OrganizationStore(context: context)
+        let owner = Account(
+            email: ownerEmail,
+            displayName: ownerName,
+            provider: .email,
+            passwordHash: sha256("password"),
+            colorHex: TagPalette.colors[abs(ownerEmail.hashValue) % TagPalette.colors.count]
+        )
+        context.insert(owner)
+        let org = orgStore.create(name: orgName, owner: owner)
+
+        let proj = Project(
+            name: project.name,
+            address: project.address,
+            latitude: project.lat,
+            longitude: project.lon,
+            label: labels.first
+        )
+        context.insert(proj)
+        proj.organization = org
+
+        let demoMember = OrgMember(
+            name: demo.displayName,
+            phoneNumber: "",
+            title: role.displayName,
+            role: role,
+            status: .active,
+            colorHex: demo.colorHex,
+            accountID: demo.id
+        )
+        context.insert(demoMember)
+        demoMember.organization = org
+        demoMember.projects = [proj]
+
+        addMockPhoto(context: context, project: proj, label: "Site", hue: hue, author: demoMember, ageHours: 2)
+        addMockPhoto(context: context, project: proj, label: "Detail", hue: hue + 0.1, author: demoMember, ageHours: 26)
+
+        let taskStore = TaskStore(context: context)
+        taskStore.create(
+            title: "Upload progress photos",
+            note: "Capture today's work on \(project.name).",
+            dueDate: Calendar.current.startOfDay(for: .now).addingTimeInterval(86_400),
+            assignee: demoMember,
+            project: proj
+        )
+        taskStore.create(
+            title: "Confirm site access for tomorrow",
+            assignee: demoMember,
+            project: proj
+        )
+    }
+
+    /// Writes one gradient placeholder photo (image + thumbnail) to a project.
+    @MainActor
+    @discardableResult
+    private static func addMockPhoto(
+        context: ModelContext,
+        project: Project,
+        label: String,
+        hue: CGFloat,
+        author: OrgMember?,
+        ageHours: Double = 0
+    ) -> Photo? {
+        guard let data = makeSampleImage(label: label, hue: hue) else { return nil }
+        let id = UUID()
+        let fileName = "\(id.uuidString).jpg"
+        let thumbnailFileName = "\(id.uuidString)_thumb.jpg"
+        guard (try? FileStorage.save(data, named: fileName, in: .photos)) != nil else { return nil }
+        if let thumbnail = ImageProcessor.makeThumbnail(from: data) {
+            _ = try? FileStorage.save(thumbnail, named: thumbnailFileName, in: .photos)
+        }
+        let photo = Photo(
+            fileName: fileName,
+            thumbnailFileName: thumbnailFileName,
+            capturedAt: Date.now.addingTimeInterval(-ageHours * 3600),
+            latitude: project.latitude.map { $0 + 0.0004 },
+            longitude: project.longitude.map { $0 - 0.0003 },
+            source: .camera,
+            project: project
+        )
+        photo.id = id
+        photo.author = author
+        context.insert(photo)
+        return photo
     }
 
     /// Seeds one rich page (heading, paragraph, checklist, photo grid) so the
