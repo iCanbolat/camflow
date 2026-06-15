@@ -17,6 +17,10 @@ enum Permission {
     /// Create/edit/delete tags, project labels, and checklist templates.
     /// (Applying existing tags to photos is open to everyone.)
     case manageTaxonomy
+    /// Create/edit/delete/assign tasks and checklists, and manage checklist
+    /// items. Standard members lack this: they can only act on work assigned
+    /// to them (see `Session.canModify(_:)`).
+    case manageTasks
     /// Create projects. Open to all roles; the plan tier limit gates it.
     case createProject
     /// Delete projects.
@@ -32,7 +36,7 @@ extension OrgMember.Role {
             permission != .deleteOrganization
         case .manager:
             switch permission {
-            case .manageTeam, .manageTaxonomy, .createProject, .deleteProject:
+            case .manageTeam, .manageTaxonomy, .manageTasks, .createProject, .deleteProject:
                 true
             case .manageBilling, .editCompanyProfile, .deleteOrganization, .changeRoles:
                 false

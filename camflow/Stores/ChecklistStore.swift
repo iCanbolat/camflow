@@ -23,12 +23,21 @@ struct ChecklistStore {
             }
         }
         project.updatedAt = .now
+        save()
         return checklist
     }
 
     func touch(_ checklist: Checklist) {
         checklist.updatedAt = .now
         checklist.syncStatus = .local
+        save()
+    }
+
+    /// Persists pending changes immediately so relationship-driven views
+    /// (e.g. `checklist.items`) refresh right away instead of waiting for the
+    /// next autosave, whose timing is non-deterministic.
+    private func save() {
+        try? context.save()
     }
 
     func softDelete(_ checklist: Checklist) {
@@ -57,6 +66,7 @@ struct ChecklistStore {
     func softDeleteItem(_ item: ChecklistItem) {
         item.deletedAt = .now
         item.updatedAt = .now
+        save()
     }
 
     // MARK: - Templates
@@ -65,12 +75,14 @@ struct ChecklistStore {
     func createTemplate(name: String, itemTitles: [String]) -> ChecklistTemplate {
         let template = ChecklistTemplate(name: name, itemTitles: itemTitles)
         context.insert(template)
+        save()
         return template
     }
 
     func touchTemplate(_ template: ChecklistTemplate) {
         template.updatedAt = .now
         template.syncStatus = .local
+        save()
     }
 
     func softDeleteTemplate(_ template: ChecklistTemplate) {

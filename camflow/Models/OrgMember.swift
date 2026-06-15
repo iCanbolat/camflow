@@ -118,7 +118,7 @@ extension OrgMember.Role {
         case .manager:
             String(localized: "Manages the team, tags, labels, templates, and projects.")
         case .standard:
-            String(localized: "Works in assigned projects only: photos, tasks, checklists, reports.")
+            String(localized: "Works in assigned projects only: adds photos and completes tasks and checklists assigned to them.")
         }
     }
 }

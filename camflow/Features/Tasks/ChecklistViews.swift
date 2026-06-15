@@ -104,6 +104,12 @@ struct ChecklistDetailView: View {
         checklist.sortedItems
     }
 
+    /// Checking items off and attaching proof photos is open to the assignee
+    /// and privileged roles; structural changes (add/delete items, rename,
+    /// delete, reassign) require `.manageTasks`.
+    private var canAct: Bool { session.canModify(checklist) }
+    private var canManage: Bool { session.can(.manageTasks) }
+
     var body: some View {
         List {
             Section {
@@ -116,7 +122,7 @@ struct ChecklistDetailView: View {
                         .monospacedDigit()
                 }
 
-                if let project = checklist.project {
+                if let project = checklist.project, canManage {
                     AssigneePicker(project: project, selectedID: $assigneeID)
                         .onChange(of: assigneeID) {
                             let store = ChecklistStore(context: modelContext)
@@ -130,6 +136,14 @@ struct ChecklistDetailView: View {
                                     .notifyChecklistAssigned(checklist, assignee: newAssignee, by: session.activeMembership)
                             }
                         }
+                } else if let assignee = checklist.assignee, assignee.deletedAt == nil {
+                    HStack {
+                        Text("Assignee")
+                        Spacer()
+                        MemberAvatar(member: assignee, size: 24)
+                        Text(assignee.name)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
 
@@ -143,37 +157,42 @@ struct ChecklistDetailView: View {
                         store.softDeleteItem(items[offset])
                     }
                 }
+                .deleteDisabled(!canManage)
 
-                HStack {
-                    TextField("Add item", text: $newItemTitle)
-                        .onSubmit(addItem)
-                    Button {
-                        addItem()
-                    } label: {
-                        Image(systemName: "plus.circle.fill")
+                if canManage {
+                    HStack {
+                        TextField("Add item", text: $newItemTitle)
+                            .onSubmit(addItem)
+                        Button {
+                            addItem()
+                        } label: {
+                            Image(systemName: "plus.circle.fill")
+                        }
+                        .disabled(newItemTitle.trimmingCharacters(in: .whitespaces).isEmpty)
                     }
-                    .disabled(newItemTitle.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
         }
         .navigationTitle(checklist.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Button {
-                        renameText = checklist.name
-                        isRenaming = true
+            if canManage {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button {
+                            renameText = checklist.name
+                            isRenaming = true
+                        } label: {
+                            Label("Rename", systemImage: "pencil")
+                        }
+                        Button(role: .destructive) {
+                            isConfirmingDelete = true
+                        } label: {
+                            Label("Delete Checklist", systemImage: "trash")
+                        }
                     } label: {
-                        Label("Rename", systemImage: "pencil")
+                        Image(systemName: "ellipsis.circle")
                     }
-                    Button(role: .destructive) {
-                        isConfirmingDelete = true
-                    } label: {
-                        Label("Delete Checklist", systemImage: "trash")
-                    }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
                 }
             }
         }
@@ -218,6 +237,7 @@ struct ChecklistDetailView: View {
                     .foregroundStyle(item.isDone ? .green : .secondary)
             }
             .buttonStyle(.plain)
+            .disabled(!canAct)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.title)
@@ -241,14 +261,17 @@ struct ChecklistDetailView: View {
                 }
                 .buttonStyle(.plain)
                 .contextMenu {
-                    Button(role: .destructive) {
-                        item.photoID = nil
-                        item.updatedAt = .now
-                    } label: {
-                        Label("Remove Photo", systemImage: "minus.circle")
+                    if canAct {
+                        Button(role: .destructive) {
+                            item.photoID = nil
+                            item.updatedAt = .now
+                            ChecklistStore(context: modelContext).touch(checklist)
+                        } label: {
+                            Label("Remove Photo", systemImage: "minus.circle")
+                        }
                     }
                 }
-            } else {
+            } else if canAct {
                 Button {
                     photoPickerItem = item
                 } label: {

@@ -2,9 +2,12 @@ import SwiftUI
 import SwiftData
 
 /// Activity feed across all projects: photos grouped by day and project,
-/// plus completed tasks and generated reports as activity rows.
+/// plus completed tasks and generated reports as activity rows. The feed is
+/// limited to the last 7 days (today and the previous six); the dashboard KPIs
+/// above it are unaffected by this window.
 struct HomeView: View {
     @Environment(Session.self) private var session
+    @Environment(\.modelContext) private var modelContext
 
     @Query(filter: #Predicate<Photo> { $0.deletedAt == nil }, sort: \Photo.capturedAt, order: .reverse)
     private var allPhotos: [Photo]
@@ -12,8 +15,17 @@ struct HomeView: View {
     @Query(filter: #Predicate<ProjectTask> { $0.deletedAt == nil && $0.completedAt != nil })
     private var allCompletedTasks: [ProjectTask]
 
+    // Open (not yet completed) tasks; scoped to the active org and current
+    // member in Swift below — optional relationship chains aren't predicate-safe.
+    @Query(filter: #Predicate<ProjectTask> { $0.deletedAt == nil && $0.completedAt == nil })
+    private var allOpenTasks: [ProjectTask]
+
     @Query(filter: #Predicate<Report> { $0.deletedAt == nil }, sort: \Report.createdAt, order: .reverse)
     private var allReports: [Report]
+
+    // Used only to detect whether the active org has any projects yet.
+    @Query(filter: #Predicate<Project> { $0.deletedAt == nil })
+    private var allProjects: [Project]
 
     // Persisted notifications for the current member (filtered in Swift).
     @Query(filter: #Predicate<AppNotification> { $0.deletedAt == nil }, sort: \AppNotification.createdAt, order: .reverse)
@@ -21,7 +33,9 @@ struct HomeView: View {
 
     @State private var previewingReport: Report?
     @State private var isShowingCreateOrg = false
+    @State private var isShowingCreateProject = false
     @State private var isShowingNotifications = false
+    @State private var isShowingSearch = false
 
     // MARK: - Active-org scoping
 
@@ -37,6 +51,49 @@ struct HomeView: View {
 
     private var reports: [Report] {
         allReports.filter { $0.project?.organization?.id == activeOrgID }
+    }
+
+    /// True when the active organization has no projects yet — drives the
+    /// "create your first project" prompt instead of the activity feed.
+    private var orgHasNoProjects: Bool {
+        !allProjects.contains { $0.organization?.id == activeOrgID }
+    }
+
+    /// Open tasks assigned to the current member in the active org, overdue first.
+    private var myOpenTasks: [ProjectTask] {
+        guard let memberID = session.activeMembership?.id else { return [] }
+        return allOpenTasks
+            .filter { $0.project?.organization?.id == activeOrgID }
+            .filter { $0.assignee?.id == memberID }
+            .sorted { lhs, rhs in
+                if lhs.isOverdue != rhs.isOverdue { return lhs.isOverdue }
+                let l = lhs.dueDate ?? .distantFuture
+                let r = rhs.dueDate ?? .distantFuture
+                return l != r ? l < r : lhs.createdAt > rhs.createdAt
+            }
+    }
+
+    // MARK: - Dashboard
+
+    private var photosTodayCount: Int {
+        photos.filter { Calendar.current.isDateInToday($0.capturedAt) }.count
+    }
+
+    private var openTaskCount: Int { myOpenTasks.count }
+
+    private var overdueCount: Int { myOpenTasks.filter(\.isOverdue).count }
+
+    private var greeting: String {
+        switch Calendar.current.component(.hour, from: .now) {
+        case 5..<12: String(localized: "Good morning")
+        case 12..<18: String(localized: "Good afternoon")
+        default: String(localized: "Good evening")
+        }
+    }
+
+    private var firstName: String {
+        (session.currentAccount?.displayName ?? "")
+            .split(separator: " ").first.map(String.init) ?? ""
     }
 
     // MARK: - Feed assembly
@@ -87,18 +144,28 @@ struct HomeView: View {
         myNotifications.filter { !$0.isRead }.count
     }
 
+    /// Start of the feed window: the last 7 days (today and the previous six).
+    private var feedStartDay: Date {
+        let calendar = Calendar.current
+        return calendar.date(byAdding: .day, value: -6, to: calendar.startOfDay(for: .now))
+            ?? .distantPast
+    }
+
     private var sections: [DaySection] {
         let calendar = Calendar.current
-        let photosByDay = Dictionary(grouping: photos) { calendar.startOfDay(for: $0.capturedAt) }
+        let cutoff = feedStartDay
+        let recentPhotos = photos.filter { $0.capturedAt >= cutoff }
+        let photosByDay = Dictionary(grouping: recentPhotos) { calendar.startOfDay(for: $0.capturedAt) }
 
         var activitiesByDay: [Date: [Activity]] = [:]
         for task in completedTasks {
-            let day = calendar.startOfDay(for: task.completedAt ?? task.updatedAt)
-            activitiesByDay[day, default: []].append(.taskCompleted(task))
+            let date = task.completedAt ?? task.updatedAt
+            guard date >= cutoff else { continue }
+            activitiesByDay[calendar.startOfDay(for: date), default: []].append(.taskCompleted(task))
         }
         for report in reports {
-            let day = calendar.startOfDay(for: report.createdAt)
-            activitiesByDay[day, default: []].append(.reportCreated(report))
+            guard report.createdAt >= cutoff else { continue }
+            activitiesByDay[calendar.startOfDay(for: report.createdAt), default: []].append(.reportCreated(report))
         }
 
         let allDays = Set(photosByDay.keys).union(activitiesByDay.keys)
@@ -122,31 +189,66 @@ struct HomeView: View {
 
     var body: some View {
         NavigationStack {
-            Group {
-                if isEmpty {
-                    ContentUnavailableView {
-                        Label("Welcome to CamFlow", systemImage: "camera.viewfinder")
-                    } description: {
-                        Text("Capture your first photo with the camera tab and your activity will show up here.")
+            List {
+                Section {
+                    VStack(alignment: .leading, spacing: 16) {
+                        greetingHeader
+                        kpiTiles
                     }
+                }
+                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+
+                if !myOpenTasks.isEmpty {
+                    Section(String(localized: "Assigned to you")) {
+                        ForEach(myOpenTasks.prefix(8)) { task in
+                            assignedTaskRow(task)
+                        }
+                    }
+                }
+
+                if orgHasNoProjects {
+                    Section {
+                        createProjectCTA
+                    }
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                } else if sections.isEmpty {
+                    Section {
+                        if isEmpty {
+                            welcomeHintRow
+                        } else {
+                            noRecentActivityRow
+                        }
+                    }
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
                 } else {
-                    List {
-                        ForEach(sections) { section in
-                            Section(section.id.dayGroupTitle) {
-                                ForEach(section.groups) { group in
-                                    groupRow(group)
-                                }
-                                ForEach(section.activities) { activity in
-                                    activityRow(activity)
-                                }
+                    ForEach(sections) { section in
+                        Section(section.id.dayGroupTitle) {
+                            ForEach(section.groups) { group in
+                                groupRow(group)
+                            }
+                            ForEach(section.activities) { activity in
+                                activityRow(activity)
                             }
                         }
                     }
-                    .listStyle(.insetGrouped)
                 }
             }
+            .listStyle(.insetGrouped)
+            .contentMargins(.top, 8, for: .scrollContent)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        isShowingSearch = true
+                    } label: {
+                        Image(systemName: "magnifyingglass")
+                    }
+                    .accessibilityLabel(Text("Search"))
+                }
                 ToolbarItem(placement: .principal) {
                     orgSwitcher
                 }
@@ -159,6 +261,12 @@ struct HomeView: View {
             }
             .sheet(isPresented: $isShowingCreateOrg) {
                 CreateOrganizationView(isModal: true)
+            }
+            .sheet(isPresented: $isShowingCreateProject) {
+                ProjectEditorView()
+            }
+            .sheet(isPresented: $isShowingSearch) {
+                PhotoSearchView()
             }
             .navigationDestination(for: Project.self) { project in
                 ProjectDetailView(project: project)
@@ -182,6 +290,133 @@ struct HomeView: View {
                 }
             }
         }
+    }
+
+    // MARK: - Dashboard views
+
+    private var greetingHeader: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(firstName.isEmpty ? greeting : "\(greeting), \(firstName)")
+                .font(.title2.weight(.bold))
+            Text(Date.now.formatted(date: .complete, time: .omitted))
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var kpiTiles: some View {
+        HStack(spacing: 10) {
+            kpiTile(value: photosTodayCount, label: "Photos today",
+                    systemImage: "camera.fill", tint: .accentColor)
+            kpiTile(value: openTaskCount, label: "Open tasks",
+                    systemImage: "checklist", tint: .blue)
+            kpiTile(value: overdueCount, label: "Overdue",
+                    systemImage: "exclamationmark.triangle.fill",
+                    tint: overdueCount > 0 ? .red : .secondary)
+        }
+    }
+
+    private func kpiTile(value: Int, label: LocalizedStringKey, systemImage: String, tint: Color) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Image(systemName: systemImage)
+                .font(.title3)
+                .foregroundStyle(tint)
+            Text("\(value)")
+                .font(.title.weight(.bold))
+                .monospacedDigit()
+                .contentTransition(.numericText())
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 14))
+        .accessibilityElement(children: .combine)
+    }
+
+    private func assignedTaskRow(_ task: ProjectTask) -> some View {
+        NavigationLink(value: task) {
+            HStack(spacing: 12) {
+                Button {
+                    TaskStore(context: modelContext).toggleCompletion(task)
+                } label: {
+                    Image(systemName: task.isCompleted ? "checkmark.circle.fill" : "circle")
+                        .font(.title3)
+                        .foregroundStyle(task.isCompleted ? .green : .secondary)
+                }
+                .buttonStyle(.plain)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(task.title)
+                        .font(.subheadline.weight(.medium))
+                        .lineLimit(1)
+                    HStack(spacing: 6) {
+                        if let project = task.project {
+                            Text(project.name)
+                            if task.dueDate != nil { Text(verbatim: "·") }
+                        }
+                        if let dueDate = task.dueDate {
+                            Text(dueDate.formatted(.dateTime.day().month()))
+                                .foregroundStyle(task.isOverdue ? .red : .secondary)
+                        }
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                }
+            }
+            .padding(.vertical, 2)
+        }
+    }
+
+    private var welcomeHintRow: some View {
+        Label {
+            Text("Capture your first photo to start your activity feed")
+        } icon: {
+            Image(systemName: "camera.viewfinder")
+        }
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity, alignment: .center)
+        .padding(.vertical, 24)
+    }
+
+    private var noRecentActivityRow: some View {
+        Label {
+            Text("No activity in the last 7 days")
+        } icon: {
+            Image(systemName: "calendar")
+        }
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity, alignment: .center)
+        .padding(.vertical, 24)
+    }
+
+    private var createProjectCTA: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "folder.badge.plus")
+                .font(.largeTitle)
+                .foregroundStyle(.tint)
+            Text("No projects yet")
+                .font(.headline)
+            Text("Create a project for each job site to keep photos organized.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            Button {
+                isShowingCreateProject = true
+            } label: {
+                Label("New Project", systemImage: "plus")
+            }
+            .buttonStyle(.borderedProminent)
+            .padding(.top, 4)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 24)
     }
 
     // MARK: - Notification bell

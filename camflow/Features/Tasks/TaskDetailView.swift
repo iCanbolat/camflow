@@ -18,6 +18,12 @@ struct TaskDetailView: View {
     @State private var isConfirmingDelete = false
     @State private var commentText = ""
 
+    /// Acting on the task (complete, comment, attach photos) is open to the
+    /// assignee and privileged roles; structural changes (edit/delete) require
+    /// `.manageTasks`.
+    private var canAct: Bool { session.canModify(task) }
+    private var canManage: Bool { session.can(.manageTasks) }
+
     private var mentionCandidates: [OrgMember] {
         guard let project = task.project else { return allMembers }
         return AssigneePicker.candidates(for: project, context: modelContext)
@@ -47,26 +53,30 @@ struct TaskDetailView: View {
         .navigationTitle(task.title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Button {
-                        isShowingEditor = true
+            if canManage {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button {
+                            isShowingEditor = true
+                        } label: {
+                            Label("Edit Task", systemImage: "pencil")
+                        }
+                        Button(role: .destructive) {
+                            isConfirmingDelete = true
+                        } label: {
+                            Label("Delete Task", systemImage: "trash")
+                        }
                     } label: {
-                        Label("Edit Task", systemImage: "pencil")
+                        Image(systemName: "ellipsis.circle")
                     }
-                    Button(role: .destructive) {
-                        isConfirmingDelete = true
-                    } label: {
-                        Label("Delete Task", systemImage: "trash")
-                    }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
                 }
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            MentionComposer(text: $commentText, members: mentionCandidates) {
-                sendComment()
+            if canAct {
+                MentionComposer(text: $commentText, members: mentionCandidates) {
+                    sendComment()
+                }
             }
         }
         .sheet(isPresented: $isShowingEditor) {
@@ -97,6 +107,13 @@ struct TaskDetailView: View {
             Button {
                 TaskStore(context: modelContext).toggleCompletion(task)
             } label: {
+                statusLabel
+            }
+            .disabled(!canAct)
+        }
+    }
+
+    private var statusLabel: some View {
                 HStack {
                     Image(systemName: task.isCompleted ? "checkmark.circle.fill" : "circle")
                         .font(.title3)
@@ -114,8 +131,6 @@ struct TaskDetailView: View {
                             .foregroundStyle(.primary)
                     }
                 }
-            }
-        }
     }
 
     private var detailsSection: some View {
@@ -141,36 +156,43 @@ struct TaskDetailView: View {
         }
     }
 
+    @ViewBuilder
     private var photosSection: some View {
-        Section("Photos") {
-            if !attachedPhotos.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(attachedPhotos) { photo in
-                            NavigationLink(value: photo) {
-                                PhotoCell(photo: photo)
-                                    .frame(width: 72, height: 72)
-                                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                            }
-                            .buttonStyle(.plain)
-                            .contextMenu {
-                                Button(role: .destructive) {
-                                    task.attachedPhotoIDs.removeAll { $0 == photo.id }
-                                    TaskStore(context: modelContext).touch(task)
-                                } label: {
-                                    Label("Remove from Task", systemImage: "minus.circle")
+        if !attachedPhotos.isEmpty || canAct {
+            Section("Photos") {
+                if !attachedPhotos.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(attachedPhotos) { photo in
+                                NavigationLink(value: photo) {
+                                    PhotoCell(photo: photo)
+                                        .frame(width: 72, height: 72)
+                                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                                }
+                                .buttonStyle(.plain)
+                                .contextMenu {
+                                    if canAct {
+                                        Button(role: .destructive) {
+                                            task.attachedPhotoIDs.removeAll { $0 == photo.id }
+                                            TaskStore(context: modelContext).touch(task)
+                                        } label: {
+                                            Label("Remove from Task", systemImage: "minus.circle")
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
+                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                 }
-                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
-            }
 
-            Button {
-                isShowingPhotoPicker = true
-            } label: {
-                Label("Attach Photos", systemImage: "photo.badge.plus")
+                if canAct {
+                    Button {
+                        isShowingPhotoPicker = true
+                    } label: {
+                        Label("Attach Photos", systemImage: "photo.badge.plus")
+                    }
+                }
             }
         }
     }

@@ -91,6 +91,24 @@ final class Session {
         activeRole.can(permission)
     }
 
+    /// Whether the current user may act on this task (complete it, comment,
+    /// attach photos). Privileged roles (`.manageTasks`) may act on anything;
+    /// standard members only on tasks assigned to them. Structural changes
+    /// (create/edit/delete/reassign) are gated separately by `.manageTasks`.
+    func canModify(_ task: ProjectTask) -> Bool {
+        if can(.manageTasks) { return true }
+        guard let me = activeMembership?.id, let assignee = task.assignee?.id else { return false }
+        return me == assignee
+    }
+
+    /// Whether the current user may act on this checklist (check items off,
+    /// attach proof photos). Same rule as `canModify(_ task:)`.
+    func canModify(_ checklist: Checklist) -> Bool {
+        if can(.manageTasks) { return true }
+        guard let me = activeMembership?.id, let assignee = checklist.assignee?.id else { return false }
+        return me == assignee
+    }
+
     var activePlan: PlanTier {
         activeOrganization?.planTier ?? .basic
     }

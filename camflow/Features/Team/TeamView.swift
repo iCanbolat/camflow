@@ -246,9 +246,16 @@ struct MemberEditorSheet: View {
 
     private var isOwner: Bool { member?.role == .owner }
 
+    /// Standard members are scoped to the projects they're assigned to, so a
+    /// project assignment is required before they can be invited or saved.
+    private var needsProjectAssignment: Bool {
+        role == .standard && selectedProjectIDs.isEmpty
+    }
+
     private var canSave: Bool {
         !name.trimmingCharacters(in: .whitespaces).isEmpty
             && PhoneNumbers.isAcceptable(phoneNumber)
+            && !needsProjectAssignment
     }
 
     var body: some View {
@@ -323,7 +330,13 @@ struct MemberEditorSheet: View {
                     } header: {
                         Text("Projects")
                     } footer: {
-                        Text("Standard members can only see assigned projects. Assignments also drive tasks and notifications.")
+                        VStack(alignment: .leading, spacing: 4) {
+                            if needsProjectAssignment && !projects.isEmpty {
+                                Text("Select at least one project — standard members work only in assigned projects.")
+                                    .foregroundStyle(.red)
+                            }
+                            Text("Standard members can only see assigned projects. Assignments also drive tasks and notifications.")
+                        }
                     }
                 }
 

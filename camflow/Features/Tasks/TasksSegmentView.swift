@@ -7,9 +7,14 @@ struct TasksSegmentView: View {
     @Bindable var project: Project
 
     @Environment(\.modelContext) private var modelContext
+    @Environment(Session.self) private var session
 
     @State private var isShowingTaskEditor = false
     @State private var isShowingChecklistEditor = false
+
+    /// Owner/admin/manager create and manage tasks and checklists; standard
+    /// members only act on work assigned to them.
+    private var canManage: Bool { session.can(.manageTasks) }
 
     private var tasks: [ProjectTask] {
         project.tasks
@@ -39,13 +44,17 @@ struct TasksSegmentView: View {
                 ContentUnavailableView {
                     Label("No Tasks Yet", systemImage: "checklist")
                 } description: {
-                    Text("Track work with tasks and checklists, assign them to your team.")
+                    Text(canManage
+                         ? "Track work with tasks and checklists, assign them to your team."
+                         : "Tasks and checklists assigned to you will appear here.")
                 } actions: {
-                    HStack {
-                        Button("New Task") { isShowingTaskEditor = true }
-                            .buttonStyle(.borderedProminent)
-                        Button("New Checklist") { isShowingChecklistEditor = true }
-                            .buttonStyle(.bordered)
+                    if canManage {
+                        HStack {
+                            Button("New Task") { isShowingTaskEditor = true }
+                                .buttonStyle(.borderedProminent)
+                            Button("New Checklist") { isShowingChecklistEditor = true }
+                                .buttonStyle(.bordered)
+                        }
                     }
                 }
                 .frame(maxHeight: .infinity)
@@ -64,6 +73,7 @@ struct TasksSegmentView: View {
                                     store.softDelete(tasks[offset])
                                 }
                             }
+                            .deleteDisabled(!canManage)
                         }
                     }
 
@@ -80,26 +90,29 @@ struct TasksSegmentView: View {
                                     store.softDelete(checklists[offset])
                                 }
                             }
+                            .deleteDisabled(!canManage)
                         }
                     }
                 }
             }
         }
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Button {
-                        isShowingTaskEditor = true
+            if canManage {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button {
+                            isShowingTaskEditor = true
+                        } label: {
+                            Label("New Task", systemImage: "checkmark.circle")
+                        }
+                        Button {
+                            isShowingChecklistEditor = true
+                        } label: {
+                            Label("New Checklist", systemImage: "list.bullet.rectangle")
+                        }
                     } label: {
-                        Label("New Task", systemImage: "checkmark.circle")
+                        Image(systemName: "plus")
                     }
-                    Button {
-                        isShowingChecklistEditor = true
-                    } label: {
-                        Label("New Checklist", systemImage: "list.bullet.rectangle")
-                    }
-                } label: {
-                    Image(systemName: "plus")
                 }
             }
         }
@@ -122,6 +135,9 @@ struct TaskRow: View {
     let task: ProjectTask
 
     @Environment(\.modelContext) private var modelContext
+    @Environment(Session.self) private var session
+
+    private var canToggle: Bool { session.canModify(task) }
 
     var body: some View {
         HStack(spacing: 12) {
@@ -133,6 +149,7 @@ struct TaskRow: View {
                     .foregroundStyle(task.isCompleted ? .green : .secondary)
             }
             .buttonStyle(.plain)
+            .disabled(!canToggle)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(task.title)

@@ -17,12 +17,21 @@ struct TaskStore {
         task.assignee = assignee
         context.insert(task)
         project.updatedAt = .now
+        save()
         return task
     }
 
     func touch(_ task: ProjectTask) {
         task.updatedAt = .now
         task.syncStatus = .local
+        save()
+    }
+
+    /// Persists pending changes immediately so relationship-driven views
+    /// (e.g. `project.tasks`) refresh right away instead of waiting for the
+    /// next autosave, whose timing is non-deterministic.
+    private func save() {
+        try? context.save()
     }
 
     /// Completion is timestamped automatically; toggling back clears it.
@@ -48,5 +57,6 @@ struct TaskStore {
     func softDeleteComment(_ comment: TaskComment) {
         comment.deletedAt = .now
         comment.updatedAt = .now
+        save()
     }
 }

@@ -22,6 +22,9 @@ import AVKit
 ///   -debugScreen joinorg     → the join-organization screen for CREW2345
 ///   -debugScreen pageeditor  → open the rich-page block editor on the seeded page
 ///   -debugScreen pagepdf     → render + preview the seeded page as a PDF
+///   -debugScreen search      → open org-wide photo search prefilled with "riverside"
+///   -seedEmptyOrg YES        → also seed a project-less org ("Newco (empty)") the
+///       demo account joins, so the Home "create your first project" prompt is reachable
 ///   -inviteURL "camflow://invite/CREW2345" → route an invite link through the
 ///       same parser as onOpenURL (simctl openurl triggers a system open-in-app
 ///       prompt that can't be tapped without UI automation)
@@ -119,6 +122,31 @@ enum DebugSupport {
         )
         context.insert(skylineLoft)
         skylineLoft.organization = secondary
+
+        // -seedEmptyOrg YES adds a project-less org the demo account joins, so the
+        // Home "create your first project" prompt is reachable for screenshots.
+        if UserDefaults.standard.bool(forKey: "seedEmptyOrg") {
+            let newcoOwner = Account(
+                email: "owner@newco.app",
+                displayName: "Newco Owner",
+                provider: .email,
+                passwordHash: sha256("password"),
+                colorHex: TagPalette.colors[4]
+            )
+            context.insert(newcoOwner)
+            let empty = orgStore.create(name: "Newco (empty)", owner: newcoOwner)
+            let demoInEmpty = OrgMember(
+                name: account.displayName,
+                phoneNumber: "",
+                title: String(localized: "Manager"),
+                role: .manager,
+                status: .active,
+                colorHex: account.colorHex,
+                accountID: account.id
+            )
+            context.insert(demoInEmpty)
+            demoInEmpty.organization = empty
+        }
 
         // Primary org demos the Pro tier and one member per role; Skyline stays
         // Basic (1 project + owner) so both plan limits are easy to exercise.
@@ -703,6 +731,8 @@ struct DebugScreenHost: View {
                     }
                 case "pagepdf":
                     DebugPagePDFView()
+                case "search":
+                    PhotoSearchView(initialQuery: "riverside")
                 default:
                     PhotoViewerView(photos: photos)
                 }
