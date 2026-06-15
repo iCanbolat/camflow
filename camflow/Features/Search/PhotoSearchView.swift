@@ -13,6 +13,9 @@ struct PhotoSearchView: View {
 
     @State private var searchText = ""
     @State private var scope: MediaScope = .all
+    /// Drives `.searchable`; flipped on so the field is focused (keyboard up)
+    /// the moment the sheet opens from Home's search button.
+    @State private var isSearchActive = false
 
     /// `initialQuery` exists so the `-debugScreen search` harness can land on a
     /// populated result grid; production callers use the no-argument form.
@@ -96,7 +99,7 @@ struct PhotoSearchView: View {
                     Button("Done") { dismiss() }
                 }
             }
-            .searchable(text: $searchText, prompt: Text("Tags, projects, location, people"))
+            .searchable(text: $searchText, isPresented: $isSearchActive, prompt: Text("Tags, projects, location, people"))
             .searchScopes($scope) {
                 ForEach(MediaScope.allCases) { option in
                     Text(option.title).tag(option)
@@ -107,6 +110,10 @@ struct PhotoSearchView: View {
                     photos: results,
                     initialIndex: results.firstIndex { $0.id == photo.id } ?? 0
                 )
+            }
+            .task {
+                // Auto-focus on entry; skip when a query was injected (debug harness).
+                if searchText.isEmpty { isSearchActive = true }
             }
         }
     }

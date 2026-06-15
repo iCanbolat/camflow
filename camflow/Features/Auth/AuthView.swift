@@ -111,11 +111,12 @@ struct AuthView: View {
 
     private var header: some View {
         VStack(spacing: 12) {
-            Image(systemName: "camera.viewfinder")
-                .font(.system(size: 56))
-                .foregroundStyle(.tint)
+            Image("CamFlowIcon")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 88, height: 88)
             Text("Welcome to CamFlow")
-                .font(.largeTitle.bold())
+                .font(.title2.bold())
             Text("Sign in to sync your projects across your team.")
                 .font(.callout)
                 .foregroundStyle(.secondary)

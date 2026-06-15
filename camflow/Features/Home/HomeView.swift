@@ -8,6 +8,7 @@ import SwiftData
 struct HomeView: View {
     @Environment(Session.self) private var session
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.colorScheme) private var colorScheme
 
     @Query(filter: #Predicate<Photo> { $0.deletedAt == nil }, sort: \Photo.capturedAt, order: .reverse)
     private var allPhotos: [Photo]
@@ -238,6 +239,8 @@ struct HomeView: View {
                 }
             }
             .listStyle(.insetGrouped)
+            .scrollContentBackground(.hidden)
+            .background { ambientBackground }
             .contentMargins(.top, 8, for: .scrollContent)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -293,6 +296,27 @@ struct HomeView: View {
     }
 
     // MARK: - Dashboard views
+
+    /// Warm ambient wash that fades from the top of the screen to about the
+    /// middle. Sits over the standard grouped background so the list cards still
+    /// read normally; opacity is tuned per appearance (a touch stronger on the
+    /// dark base, softer on the light one).
+    private var ambientBackground: some View {
+        ZStack(alignment: .top) {
+            Color(.systemGroupedBackground)
+            LinearGradient(
+                colors: [
+                    Color.accentColor.opacity(colorScheme == .dark ? 0.34 : 0.22),
+                    Color.accentColor.opacity(colorScheme == .dark ? 0.10 : 0.07),
+                    .clear,
+                ],
+                startPoint: .top,
+                endPoint: .center
+            )
+            .blur(radius: 24)
+        }
+        .ignoresSafeArea()
+    }
 
     private var greetingHeader: some View {
         VStack(alignment: .leading, spacing: 2) {

@@ -5,6 +5,8 @@
 	<!-- Partial Info.plist: merged with the generated one
 	     (GENERATE_INFOPLIST_FILE stays YES). Only keys that have no
 	     INFOPLIST_KEY_* build-setting equivalent live here. -->
+	<key>CFBundleDisplayName</key>
+	<string>CamFlow</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -22,5 +24,12 @@
 	<array>
 		<string>whatsapp</string>
 	</array>
+	<key>UILaunchScreen</key>
+	<dict>
+		<key>UIImageName</key>
+		<string>CamFlowIcon</string>
+		<key>UIImageRespectsSafeAreaInsets</key>
+		<true/>
+	</dict>
 </dict>
 </plist>
