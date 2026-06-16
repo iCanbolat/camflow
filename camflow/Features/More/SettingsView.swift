@@ -20,15 +20,6 @@ struct SettingsView: View {
             } footer: {
                 Text("Branded exports include your company logo and the photo's time and location stamp.")
             }
-
-            Section("Storage") {
-                LabeledContent("Photos & Videos") {
-                    Text(FileStorage.totalSize(of: .photos), format: .byteCount(style: .file))
-                }
-                LabeledContent("Reports") {
-                    Text(FileStorage.totalSize(of: .reports), format: .byteCount(style: .file))
-                }
-            }
         }
         .navigationTitle("Settings")
     }

@@ -69,6 +69,16 @@ struct MoreView: View {
 
                 Section("Preferences") {
                     NavigationLink {
+                        StorageView()
+                    } label: {
+                        HStack {
+                            Label("Storage", systemImage: "internaldrive.fill")
+                            Spacer()
+                            Text(session.activeStorageLimit, format: .byteCount(style: .file))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    NavigationLink {
                         SettingsView()
                     } label: {
                         Label("Settings", systemImage: "gearshape.fill")

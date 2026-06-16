@@ -13,10 +13,12 @@ import AVKit
 ///   -skipAuth YES            → sign in to the first seeded account and skip onboarding
 ///   -activeOrgName "<name>"  → select the active org by name
 ///   -planTier basic|pro|premium          → set the active org's plan tier
+///   -subscriptionState trialing|expired|active → force the active (owned) org's billing state
 ///   -activeRole admin|manager|standard   → set the current account's role in the active org
 ///   -debugScreen viewer      → open the photo viewer over the tab bar
 ///   -debugScreen annotation  → open the annotation editor over the tab bar
 ///   -debugScreen billing     → open Plan & Billing; upgradeprompt → the upsell sheet
+///   -debugScreen storage     → the Storage screen (animated usage ring + add-ons)
 ///   -debugScreen notifications → the notifications sheet for the current member
 ///   -debugScreen inviteshare → the invite-link share sheet (seeded code CREW2345)
 ///   -debugScreen joinorg     → the join-organization screen for CREW2345
@@ -162,9 +164,11 @@ enum DebugSupport {
             demoInEmpty.organization = empty
         }
 
-        // Primary org demos the Pro tier and one member per role; Skyline stays
-        // Basic (1 project + owner) so both plan limits are easy to exercise.
-        primary.planTier = .pro
+        // Primary org demos a subscribed Pro tier (so the app opens past the
+        // paywall) plus one member per role; Skyline is subscribed Basic
+        // (1 project + owner) so plan limits are easy to exercise.
+        orgStore.subscribe(.pro, for: primary)
+        orgStore.subscribe(.basic, for: secondary)
 
         let memberStore = MemberStore(context: context)
         let mehmet = memberStore.invite(
@@ -418,6 +422,24 @@ enum DebugSupport {
            let tier = PlanTier(rawValue: raw),
            let org = session.activeOrganization {
             OrganizationStore(context: context).setPlan(tier, for: org)
+        }
+
+        // -subscriptionState trialing|expired|active forces the active (owned)
+        // org's billing lifecycle so the trial banner and paywall are testable.
+        if let raw = defaults.string(forKey: "subscriptionState"),
+           let org = session.activeOrganization {
+            switch raw {
+            case "trialing":
+                org.trialStartedAt = .now
+                org.subscriptionStartedAt = nil
+            case "expired":
+                org.trialStartedAt = Date.now.addingTimeInterval(-8 * 24 * 60 * 60)
+                org.subscriptionStartedAt = nil
+            case "active":
+                org.subscriptionStartedAt = .now
+            default:
+                break
+            }
         }
 
         // -activeRole admin|manager|standard rewrites the current account's
@@ -852,6 +874,8 @@ struct DebugScreenHost: View {
                     }
                 case "billing":
                     PlanBillingView()
+                case "storage":
+                    StorageView()
                 case "upgradeprompt":
                     UpgradePromptSheet(context: .projectLimit)
                 case "inviteshare":

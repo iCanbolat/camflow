@@ -67,4 +67,13 @@ nonisolated enum FileStorage {
             return total + Int64(size)
         }
     }
+
+    /// Removes every file in a directory to free on-device space. Used by the
+    /// on-device storage manager; in the cloud-sync phase the SwiftData records
+    /// stay and their media re-downloads from Bunny.net on demand.
+    static func clear(_ directory: Directory) {
+        let fm = FileManager.default
+        guard let files = try? fm.contentsOfDirectory(at: directory.url, includingPropertiesForKeys: nil) else { return }
+        for file in files { try? fm.removeItem(at: file) }
+    }
 }

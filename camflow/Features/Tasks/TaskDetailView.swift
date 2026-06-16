@@ -17,6 +17,7 @@ struct TaskDetailView: View {
     @State private var isShowingPhotoPicker = false
     @State private var isConfirmingDelete = false
     @State private var commentText = ""
+    @State private var upgradeContext: UpgradeContext?
 
     /// Acting on the task (complete, comment, attach photos) is open to the
     /// assignee and privileged roles; structural changes (edit/delete) require
@@ -74,8 +75,13 @@ struct TaskDetailView: View {
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if canAct {
-                MentionComposer(text: $commentText, members: mentionCandidates) {
-                    sendComment()
+                // Existing comments stay readable; adding new ones is a Pro feature.
+                if session.activePlan.includesComments {
+                    MentionComposer(text: $commentText, members: mentionCandidates) {
+                        sendComment()
+                    }
+                } else {
+                    lockedCommentBar
                 }
             }
         }
@@ -98,6 +104,26 @@ struct TaskDetailView: View {
                 dismiss()
             }
         }
+        .sheet(item: $upgradeContext) { UpgradePromptSheet(context: $0) }
+    }
+
+    private var lockedCommentBar: some View {
+        Button {
+            upgradeContext = .comments
+        } label: {
+            HStack(spacing: 8) {
+                LockBadge()
+                Text("Upgrade to Pro to comment")
+                    .font(.subheadline)
+                Spacer()
+            }
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity)
+            .background(.bar)
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Sections

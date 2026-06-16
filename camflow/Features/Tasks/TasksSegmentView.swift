@@ -11,6 +11,7 @@ struct TasksSegmentView: View {
 
     @State private var isShowingTaskEditor = false
     @State private var isShowingChecklistEditor = false
+    @State private var upgradeContext: UpgradeContext?
 
     /// Owner/admin/manager create and manage tasks and checklists; standard
     /// members only act on work assigned to them.
@@ -50,9 +51,9 @@ struct TasksSegmentView: View {
                 } actions: {
                     if canManage {
                         HStack {
-                            Button("New Task") { isShowingTaskEditor = true }
+                            Button("New Task") { startNewTask() }
                                 .buttonStyle(.borderedProminent)
-                            Button("New Checklist") { isShowingChecklistEditor = true }
+                            Button("New Checklist") { startNewChecklist() }
                                 .buttonStyle(.bordered)
                         }
                     }
@@ -101,12 +102,12 @@ struct TasksSegmentView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         Button {
-                            isShowingTaskEditor = true
+                            startNewTask()
                         } label: {
                             Label("New Task", systemImage: "checkmark.circle")
                         }
                         Button {
-                            isShowingChecklistEditor = true
+                            startNewChecklist()
                         } label: {
                             Label("New Checklist", systemImage: "list.bullet.rectangle")
                         }
@@ -122,11 +123,31 @@ struct TasksSegmentView: View {
         .sheet(isPresented: $isShowingChecklistEditor) {
             ChecklistEditorSheet(project: project)
         }
+        .sheet(item: $upgradeContext) { UpgradePromptSheet(context: $0) }
         .navigationDestination(for: ProjectTask.self) { task in
             TaskDetailView(task: task)
         }
         .navigationDestination(for: Checklist.self) { checklist in
             ChecklistDetailView(checklist: checklist)
+        }
+    }
+
+    /// Tasks are a Pro feature; on Basic the create action presents the upsell.
+    /// Existing tasks stay viewable and editable (downgrade rule).
+    private func startNewTask() {
+        if session.activePlan.includesTasks {
+            isShowingTaskEditor = true
+        } else {
+            upgradeContext = .tasks
+        }
+    }
+
+    /// Checklists are a Pro feature; on Basic the create action presents the upsell.
+    private func startNewChecklist() {
+        if session.activePlan.includesChecklists {
+            isShowingChecklistEditor = true
+        } else {
+            upgradeContext = .checklists
         }
     }
 }

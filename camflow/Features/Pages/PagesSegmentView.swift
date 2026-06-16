@@ -11,6 +11,7 @@ struct PagesSegmentView: View {
 
     @State private var isChoosingTemplate = false
     @State private var editingPage: Page?
+    @State private var upgradeContext: UpgradeContext?
 
     private var pages: [Page] {
         project.activePages.sorted { $0.updatedAt > $1.updatedAt }
@@ -24,7 +25,7 @@ struct PagesSegmentView: View {
                 } description: {
                     Text("Build rich notes — daily logs, photo reports, and site inspections — from this project's photos and text.")
                 } actions: {
-                    Button("New Page") { isChoosingTemplate = true }
+                    Button("New Page") { startNewPage() }
                         .buttonStyle(.borderedProminent)
                 }
                 .frame(maxHeight: .infinity)
@@ -49,7 +50,7 @@ struct PagesSegmentView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
-                    isChoosingTemplate = true
+                    startNewPage()
                 } label: {
                     Image(systemName: "plus")
                 }
@@ -68,6 +69,17 @@ struct PagesSegmentView: View {
         }
         .fullScreenCover(item: $editingPage) { page in
             PageEditorView(page: page, project: project)
+        }
+        .sheet(item: $upgradeContext) { UpgradePromptSheet(context: $0) }
+    }
+
+    /// Pages are a Pro feature; on Basic the create action presents the upsell.
+    /// Existing pages stay viewable and editable (downgrade rule).
+    private func startNewPage() {
+        if session.activePlan.includesPages {
+            isChoosingTemplate = true
+        } else {
+            upgradeContext = .pages
         }
     }
 

@@ -76,6 +76,25 @@ struct OrganizationStore {
         touch(org)
     }
 
+    /// Mock subscription: set the chosen plan and stamp the subscription start
+    /// (first time only), flipping the org out of trial/expired into `.active`.
+    /// Real payment processing arrives with cloud accounts.
+    func subscribe(_ tier: PlanTier, for org: Organization) {
+        org.planTier = tier
+        if org.subscriptionStartedAt == nil {
+            org.subscriptionStartedAt = .now
+        }
+        touch(org)
+    }
+
+    /// Mock storage add-on purchase: stacks extra storage on the plan. Instant
+    /// and free today; real billing arrives with cloud accounts.
+    func setStorageAddOn(_ addOn: StorageAddOn, for org: Organization) {
+        guard org.storageAddOn != addOn else { return }
+        org.storageAddOn = addOn
+        touch(org)
+    }
+
     /// Children are left in place; `organizations(for:)` and `organization(id:)`
     /// filter `deletedAt == nil`, so the org disappears everywhere at once.
     func softDelete(_ org: Organization) {

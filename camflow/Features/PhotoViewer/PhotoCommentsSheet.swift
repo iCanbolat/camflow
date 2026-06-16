@@ -14,6 +14,7 @@ struct PhotoCommentsSheet: View {
     @Environment(Session.self) private var session
 
     @State private var commentText = ""
+    @State private var upgradeContext: UpgradeContext?
 
     private var mentionCandidates: [OrgMember] {
         session.activeOrganization?.activeMembers ?? []
@@ -50,12 +51,38 @@ struct PhotoCommentsSheet: View {
                 }
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                MentionComposer(text: $commentText, members: mentionCandidates) {
-                    sendComment()
+                // Reading existing comments stays open to everyone; only adding new
+                // comments is a Pro feature (downgrade rule).
+                if session.activePlan.includesComments {
+                    MentionComposer(text: $commentText, members: mentionCandidates) {
+                        sendComment()
+                    }
+                } else {
+                    lockedCommentBar
                 }
             }
         }
         .presentationDetents([.medium, .large])
+        .sheet(item: $upgradeContext) { UpgradePromptSheet(context: $0) }
+    }
+
+    private var lockedCommentBar: some View {
+        Button {
+            upgradeContext = .comments
+        } label: {
+            HStack(spacing: 8) {
+                LockBadge()
+                Text("Upgrade to Pro to comment")
+                    .font(.subheadline)
+                Spacer()
+            }
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity)
+            .background(.bar)
+        }
+        .buttonStyle(.plain)
     }
 
     private func sendComment() {

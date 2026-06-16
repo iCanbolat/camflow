@@ -37,6 +37,7 @@ struct HomeView: View {
     @State private var isShowingCreateProject = false
     @State private var isShowingNotifications = false
     @State private var isShowingSearch = false
+    @State private var isShowingPlans = false
 
     // MARK: - Active-org scoping
 
@@ -191,6 +192,12 @@ struct HomeView: View {
     var body: some View {
         NavigationStack {
             List {
+                if session.showsTrialBanner {
+                    Section {
+                        trialBanner
+                    }
+                }
+
                 Section {
                     VStack(alignment: .leading, spacing: 16) {
                         greetingHeader
@@ -264,6 +271,9 @@ struct HomeView: View {
             }
             .sheet(isPresented: $isShowingCreateOrg) {
                 CreateOrganizationView(isModal: true)
+            }
+            .sheet(isPresented: $isShowingPlans) {
+                NavigationStack { PlanBillingView() }
             }
             .sheet(isPresented: $isShowingCreateProject) {
                 ProjectEditorView()
@@ -470,6 +480,36 @@ struct HomeView: View {
                 }
         }
         .accessibilityLabel(Text("Notifications"))
+    }
+
+    // MARK: - Trial banner
+
+    /// Shown only for the owner during their own org's trial (`showsTrialBanner`).
+    /// Taps open Plan & Billing so they can subscribe before the trial ends.
+    private var trialBanner: some View {
+        Button {
+            isShowingPlans = true
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "sparkles")
+                    .font(.title3)
+                    .foregroundStyle(.tint)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("^[\(session.trialDaysRemaining) day](inflect: true) left in your free trial")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text("Choose a plan to keep every feature")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.vertical, 4)
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Org switcher

@@ -42,6 +42,11 @@ final class Session {
         normalizeActiveOrg()
     }
 
+    /// Bumped when a plan/subscription mutation is routed through this session,
+    /// so views observing `Session` (e.g. the root paywall gate) re-evaluate
+    /// entitlement even though the change lives on the SwiftData `Organization`.
+    private(set) var revision = 0
+
     // MARK: - Derived state
 
     var organizations: [Organization] {
@@ -109,11 +114,67 @@ final class Session {
         return me == assignee
     }
 
+    /// Entitlement for all feature gates — the active org's `effectivePlan`
+    /// (Premium during the trial, the subscribed tier after). Touches `revision`
+    /// so a subscription change routed through `subscribe(_:)` re-renders gates.
     var activePlan: PlanTier {
-        activeOrganization?.planTier ?? .basic
+        _ = revision
+        return activeOrganization?.effectivePlan ?? .basic
+    }
+
+    /// True only when the current account *created* the active org (vs. was
+    /// invited to it). The trial & paywall are scoped to owned orgs.
+    var activeOrgIsOwned: Bool {
+        guard let accountID = currentAccount?.id, let org = activeOrganization else { return false }
+        return org.ownerAccountID == accountID
+    }
+
+    /// Blocking paywall fires only for the OWNER of an expired org — an org the
+    /// user was merely invited to never paywalls them.
+    var requiresSubscription: Bool {
+        _ = revision
+        return activeOrgIsOwned && activeOrganization?.subscriptionStatus == .expired
+    }
+
+    /// Trial banner shows only for the owner during their own org's trial.
+    var showsTrialBanner: Bool {
+        _ = revision
+        return activeOrgIsOwned && activeOrganization?.subscriptionStatus == .trialing
+    }
+
+    var trialDaysRemaining: Int {
+        activeOrganization?.trialDaysRemaining ?? 0
+    }
+
+    /// Effective storage limit (plan base + add-on) for the active org.
+    var activeStorageLimit: Int64 {
+        _ = revision
+        return activeOrganization?.effectiveStorageBytes ?? PlanTier.basic.maxStorageBytes
+    }
+
+    var activeStorageAddOn: StorageAddOn {
+        _ = revision
+        return activeOrganization?.storageAddOn ?? .none
     }
 
     // MARK: - Mutations
+
+    /// Subscribe the active org to a paid plan (mock payment). Routed through the
+    /// session so the `revision` bump re-renders the root paywall gate; the
+    /// underlying mutation lives on the SwiftData `Organization`.
+    func subscribe(_ tier: PlanTier) {
+        guard let org = activeOrganization else { return }
+        OrganizationStore(context: context).subscribe(tier, for: org)
+        revision += 1
+    }
+
+    /// Add/change/remove the active org's storage add-on (mock). Bumps `revision`
+    /// so storage views re-render and the usage ring re-animates.
+    func setStorageAddOn(_ addOn: StorageAddOn) {
+        guard let org = activeOrganization else { return }
+        OrganizationStore(context: context).setStorageAddOn(addOn, for: org)
+        revision += 1
+    }
 
     func signIn(_ account: Account) {
         currentAccount = account

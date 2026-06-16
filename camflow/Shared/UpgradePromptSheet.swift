@@ -8,6 +8,10 @@ enum UpgradeContext: String, Identifiable {
     case memberLimit
     case arMeasure
     case dualCapture
+    case tasks
+    case checklists
+    case comments
+    case pages
 
     var id: String { rawValue }
 
@@ -17,6 +21,10 @@ enum UpgradeContext: String, Identifiable {
         case .memberLimit: "person.badge.plus"
         case .arMeasure: "ruler"
         case .dualCapture: "rectangle.inset.filled.badge.record"
+        case .tasks: "checkmark.circle"
+        case .checklists: "list.bullet.rectangle"
+        case .comments: "bubble.left.and.bubble.right"
+        case .pages: "doc.text.image"
         }
     }
 
@@ -26,6 +34,10 @@ enum UpgradeContext: String, Identifiable {
         case .memberLimit: String(localized: "Member Limit Reached")
         case .arMeasure: String(localized: "Measure with AR")
         case .dualCapture: String(localized: "Record with Both Cameras")
+        case .tasks: String(localized: "Assign Tasks")
+        case .checklists: String(localized: "Build Checklists")
+        case .comments: String(localized: "Comment & Mention")
+        case .pages: String(localized: "Create Pages")
         }
     }
 
@@ -33,20 +45,28 @@ enum UpgradeContext: String, Identifiable {
         switch self {
         case .projectLimit:
             if let limit = plan.maxActiveProjects {
-                String(localized: "The \(plan.displayName) plan includes up to \(limit) active projects. Upgrade for unlimited projects.")
+                String(localized: "The \(plan.displayName) plan includes up to ^[\(limit) active project](inflect: true). Upgrade for more.")
             } else {
-                String(localized: "Upgrade for unlimited projects.")
+                String(localized: "Upgrade for more active projects.")
             }
         case .memberLimit:
             if let limit = plan.maxMembers {
-                String(localized: "The \(plan.displayName) plan includes up to \(limit) team members. Upgrade for an unlimited crew.")
+                String(localized: "The \(plan.displayName) plan includes up to ^[\(limit) team member](inflect: true). Upgrade for a bigger crew.")
             } else {
-                String(localized: "Upgrade for an unlimited crew.")
+                String(localized: "Upgrade for a bigger crew.")
             }
         case .arMeasure:
             String(localized: "Point-to-point AR measurement is part of the Premium plan.")
         case .dualCapture:
             String(localized: "Dual camera (PiP) video is part of the Premium plan.")
+        case .tasks:
+            String(localized: "Task assignment is part of the Pro plan.")
+        case .checklists:
+            String(localized: "Checklists are part of the Pro plan.")
+        case .comments:
+            String(localized: "Comments and @mentions are part of the Pro plan.")
+        case .pages:
+            String(localized: "Pages are part of the Pro plan.")
         }
     }
 
@@ -56,6 +76,10 @@ enum UpgradeContext: String, Identifiable {
         case .memberLimit: tier.maxMembers == nil
         case .arMeasure: tier.includesARMeasure
         case .dualCapture: tier.includesDualCapture
+        case .tasks: tier.includesTasks
+        case .checklists: tier.includesChecklists
+        case .comments: tier.includesComments
+        case .pages: tier.includesPages
         }
     }
 }

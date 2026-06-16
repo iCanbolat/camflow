@@ -28,6 +28,11 @@ struct RootCoordinatorView: View {
             CreateOrganizationView()
         } else if !hasPrimedPermissions {
             PermissionPrimingView { hasPrimedPermissions = true }
+        } else if session.requiresSubscription {
+            // The owner's trial has ended with no subscription — a blocking gate
+            // forces a plan choice. Scoped to owned orgs, so invited members of an
+            // expired org are never blocked here.
+            PaywallView()
         } else {
             RootTabView()
         }

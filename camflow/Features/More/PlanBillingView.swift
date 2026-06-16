@@ -21,13 +21,13 @@ struct PlanBillingView: View {
         .navigationTitle("Plan & Billing")
         .navigationBarTitleDisplayMode(.inline)
         .confirmationDialog(
-            "Switch to \(pendingTier?.displayName ?? "")?",
+            confirmTitle,
             isPresented: Binding(get: { pendingTier != nil }, set: { if !$0 { pendingTier = nil } }),
             titleVisibility: .visible
         ) {
-            Button("Switch Plan") {
-                if let tier = pendingTier, let org = session.activeOrganization {
-                    OrganizationStore(context: modelContext).setPlan(tier, for: org)
+            Button(isSubscribed ? "Switch Plan" : "Subscribe") {
+                if let tier = pendingTier {
+                    session.subscribe(tier)
                 }
                 pendingTier = nil
             }
@@ -40,33 +40,69 @@ struct PlanBillingView: View {
         }
     }
 
+    private var isSubscribed: Bool { session.activeOrganization?.isSubscribed ?? false }
+
+    private var confirmTitle: String {
+        guard let tier = pendingTier else { return "" }
+        return isSubscribed
+            ? String(localized: "Switch to \(tier.displayName)?")
+            : String(localized: "Subscribe to \(tier.displayName)?")
+    }
+
     private func currentPlanSection(_ org: Organization) -> some View {
         Section {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(org.name)
                         .font(.headline)
-                    Text(org.planTier.tagline)
+                    Text(currentStatusText(org))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                LabelChip(name: org.planTier.displayName, colorHex: org.planTier.chipColorHex)
+                if org.subscriptionStatus == .trialing {
+                    LabelChip(name: String(localized: "Free Trial"), colorHex: "#34C759")
+                } else {
+                    LabelChip(name: org.planTier.displayName, colorHex: org.planTier.chipColorHex)
+                }
             }
             usageRow(
                 label: String(localized: "Projects"),
                 count: org.activeProjects.count,
-                limit: org.planTier.maxActiveProjects
+                limit: org.effectivePlan.maxActiveProjects
             )
             usageRow(
                 label: String(localized: "Members"),
                 count: org.activeMembers.count,
-                limit: org.planTier.maxMembers
+                limit: org.effectivePlan.maxMembers
             )
+            storageUsageRow(org)
         } header: {
             Text("Current Plan")
         } footer: {
             Text("Real payments arrive with cloud accounts — plan changes are instant and free today.")
+        }
+    }
+
+    private func currentStatusText(_ org: Organization) -> String {
+        switch org.subscriptionStatus {
+        case .trialing: String(localized: "Free trial · \(org.trialDaysRemaining) days left")
+        case .active: org.planTier.tagline
+        case .expired: String(localized: "Trial ended")
+        }
+    }
+
+    private func storageUsageRow(_ org: Organization) -> some View {
+        let used = FileStorage.totalSize(of: .photos)
+            + FileStorage.totalSize(of: .reports)
+            + FileStorage.totalSize(of: .pages)
+        let limit = org.effectiveStorageBytes
+        return VStack(alignment: .leading, spacing: 4) {
+            LabeledContent("Storage") {
+                Text(verbatim: "\(used.formatted(.byteCount(style: .file))) of \(limit.formatted(.byteCount(style: .file)))")
+            }
+            ProgressView(value: Double(min(used, limit)), total: Double(max(limit, 1)))
+                .tint(used >= limit ? .orange : .accentColor)
         }
     }
 
@@ -87,16 +123,20 @@ struct PlanBillingView: View {
     }
 
     private func tierSection(_ tier: PlanTier, org: Organization) -> some View {
-        Section {
+        let isCurrent = org.subscriptionStatus == .active && tier == org.planTier
+        return Section {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Text(tier.displayName)
                         .font(.headline)
                     Spacer()
-                    if tier == org.planTier {
+                    if isCurrent {
                         LabelChip(name: String(localized: "Current"), colorHex: tier.chipColorHex)
                     }
                 }
+                Text(verbatim: "\(tier.price) \(tier.pricePeriod)")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
                 ForEach(tier.featureBullets, id: \.self) { bullet in
                     Label(bullet, systemImage: "checkmark")
                         .font(.subheadline)
@@ -107,13 +147,22 @@ struct PlanBillingView: View {
             Button {
                 pendingTier = tier
             } label: {
-                Text(tier == org.planTier ? "Current Plan" : "Switch to \(tier.displayName)")
+                Text(buttonTitle(for: tier, org: org))
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
             .tint(Color(hex: tier.chipColorHex))
-            .disabled(tier == org.planTier)
+            .disabled(isCurrent)
         }
+    }
+
+    private func buttonTitle(for tier: PlanTier, org: Organization) -> String {
+        if org.subscriptionStatus == .active {
+            return tier == org.planTier
+                ? String(localized: "Current Plan")
+                : String(localized: "Switch to \(tier.displayName)")
+        }
+        return String(localized: "Subscribe to \(tier.displayName)")
     }
 
     /// Switching below current usage is allowed — nothing is deleted, new
@@ -125,6 +174,9 @@ struct PlanBillingView: View {
         }
         if let limit = tier.maxMembers, org.activeMembers.count > limit {
             lines.append(String(localized: "Your team has \(org.activeMembers.count) members; \(tier.displayName) allows \(limit). Existing members stay, but inviting is blocked until you're under the limit."))
+        }
+        if !tier.includesTasks {
+            lines.append(String(localized: "Tasks, checklists, comments, and Pages aren't part of \(tier.displayName). Existing items stay viewable and editable, but you can't create new ones."))
         }
         return lines.isEmpty ? nil : lines.joined(separator: "\n")
     }
