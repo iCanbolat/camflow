@@ -11,12 +11,13 @@ struct JoinOrganizationView: View {
 
     @Environment(\.modelContext) private var modelContext
     @Environment(Session.self) private var session
+    @Environment(AppServices.self) private var services
 
     @State private var preview: InvitePreview?
     @State private var failure: InviteError?
     @State private var isWorking = false
 
-    private var service: any InviteService { LocalInviteService(context: modelContext) }
+    private var service: any InviteService { services.inviteService }
 
     var body: some View {
         VStack(spacing: 32) {
@@ -233,7 +234,9 @@ struct InviteCodeEntrySheet: View {
         for: OrgMember.self,
         configurations: ModelConfiguration(isStoredInMemoryOnly: true)
     )
+    let session = Session(context: container.mainContext)
     return JoinOrganizationView(code: "CREW2345")
         .modelContainer(container)
-        .environment(Session(context: container.mainContext))
+        .environment(session)
+        .environment(AppServices(modelContext: container.mainContext, session: session))
 }

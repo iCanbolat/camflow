@@ -47,6 +47,16 @@ final class Session {
     /// entitlement even though the change lives on the SwiftData `Organization`.
     private(set) var revision = 0
 
+    /// Bumped when a notification deep link (push tap) asks to open the
+    /// notifications surface. `RootTabView` switches to Home and `HomeView`
+    /// presents the sheet; a counter avoids any reset coordination.
+    private(set) var notificationsRequest = 0
+
+    /// Routes a notification deep-link tap to the notifications screen.
+    func requestNotifications() {
+        notificationsRequest += 1
+    }
+
     // MARK: - Derived state
 
     var organizations: [Organization] {
@@ -214,6 +224,13 @@ final class Session {
     func handleOrgDeleted() {
         activeOrganizationID = nil
         UserDefaults.standard.removeObject(forKey: Keys.org)
+        normalizeActiveOrg()
+    }
+
+    /// Re-evaluates the active organization after a cloud bootstrap/sync has
+    /// upserted org + member rows (which the computed `organizations` fetch only
+    /// sees once they exist). Picks the first available org if none is active.
+    func reconcileActiveOrg() {
         normalizeActiveOrg()
     }
 

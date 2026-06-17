@@ -41,6 +41,7 @@ struct PhotoStore {
         )
         photo.id = id
         context.insert(photo)
+        enqueueUpload(for: photo)
 
         if let project {
             project.updatedAt = .now
@@ -87,6 +88,7 @@ struct PhotoStore {
         )
         photo.id = id
         context.insert(photo)
+        enqueueUpload(for: photo)
 
         if let project {
             project.updatedAt = .now
@@ -107,6 +109,13 @@ struct PhotoStore {
             project: project,
             author: author
         )
+    }
+
+    /// Queues the photo's raw bytes for background upload to the media pipeline.
+    /// Picked up by `MediaUploader` (no-op without a cloud session). Kept here so
+    /// every capture/import path enqueues exactly once at the single write seam.
+    private func enqueueUpload(for photo: Photo) {
+        context.insert(MediaUpload(photoID: photo.id))
     }
 
     func touch(_ photo: Photo) {

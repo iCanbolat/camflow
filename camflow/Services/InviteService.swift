@@ -44,10 +44,9 @@ enum InviteError: LocalizedError {
     }
 }
 
-/// Invite boundary. The local scaffold ships `LocalInviteService`; the cloud
-/// phase adds a server-backed implementation (code issuance, validation and
-/// redemption move to the backend) conforming to the same protocol so the UI
-/// doesn't change.
+/// Invite boundary. The cloud implementation is `ApiInviteService`: code
+/// issuance, preview, validation and redemption all live on the backend, so an
+/// invite link works across devices. The UI is unchanged behind this protocol.
 @MainActor
 protocol InviteService {
     /// Idempotent: returns the member's existing code or issues a new one.
@@ -57,94 +56,8 @@ protocol InviteService {
     func redeem(code: String, account: Account) async throws -> Organization
 }
 
-/// Local, offline implementation: codes live on `OrgMember.inviteCode`, so
-/// redemption only works against this device's database (same-device demo).
-@MainActor
-struct LocalInviteService: InviteService {
-    let context: ModelContext
-
-    func issueInvite(for member: OrgMember) async throws -> InviteLink {
-        if let code = member.inviteCode {
-            return InviteLinks.link(for: code)
-        }
-        var code = InviteLinks.generateCode()
-        while Self.member(code: code, context: context) != nil {
-            code = InviteLinks.generateCode()
-        }
-        MemberStore(context: context).assignInviteCode(code, to: member)
-        return InviteLinks.link(for: code)
-    }
-
-    func preview(code rawCode: String) async throws -> InvitePreview {
-        let member = try liveMember(for: rawCode)
-        guard let organization = member.organization, organization.deletedAt == nil else {
-            throw InviteError.organizationUnavailable
-        }
-        return InvitePreview(
-            organizationName: organization.name,
-            organizationLogoFileName: organization.logoFileName,
-            memberName: member.name,
-            roleDisplayName: member.role.displayName
-        )
-    }
-
-    func redeem(code rawCode: String, account: Account) async throws -> Organization {
-        let member = try liveMember(for: rawCode)
-        guard let organization = member.organization, organization.deletedAt == nil else {
-            throw InviteError.organizationUnavailable
-        }
-        if member.accountID == account.id {
-            // Idempotent: re-opening your own redeemed invite just succeeds.
-            if member.status != .active {
-                MemberStore(context: context).activate(member, accountID: account.id)
-            }
-            return organization
-        }
-        guard member.accountID == nil else {
-            throw InviteError.alreadyRedeemed
-        }
-        if Self.membership(accountID: account.id, in: organization, context: context) != nil {
-            throw InviteError.alreadyMember(
-                organizationID: organization.id,
-                organizationName: organization.name
-            )
-        }
-        MemberStore(context: context).activate(member, accountID: account.id)
-        return organization
-    }
-
-    // MARK: - Lookups
-
-    private func liveMember(for rawCode: String) throws -> OrgMember {
-        guard let code = InviteLinks.normalizedCode(rawCode),
-              let member = Self.member(code: code, context: context) else {
-            throw InviteError.codeNotFound
-        }
-        return member
-    }
-
-    private static func member(code: String, context: ModelContext) -> OrgMember? {
-        let descriptor = FetchDescriptor<OrgMember>(
-            predicate: #Predicate { $0.inviteCode == code && $0.deletedAt == nil }
-        )
-        return (try? context.fetch(descriptor))?.first
-    }
-
-    private static func membership(
-        accountID: UUID,
-        in organization: Organization,
-        context: ModelContext
-    ) -> OrgMember? {
-        let descriptor = FetchDescriptor<OrgMember>(
-            predicate: #Predicate { $0.accountID == accountID && $0.deletedAt == nil }
-        )
-        let members = (try? context.fetch(descriptor)) ?? []
-        return members.first { $0.organization?.id == organization.id }
-    }
-}
-
-/// Pure link/code helpers shared by the local service, the future backend
-/// client, and the URL handlers in the app entry point.
+/// Pure link/code helpers shared by the invite client and the URL handlers in
+/// the app entry point.
 enum InviteLinks {
     /// The one place the invite domain lives; swap when the real domain lands.
     static let webHost = "camflow.app"

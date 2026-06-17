@@ -269,6 +269,10 @@ struct HomeView: View {
             .sheet(isPresented: $isShowingNotifications) {
                 NotificationsView(recipientID: session.activeMembership?.id ?? UUID())
             }
+            // A notification deep-link tap (push) routes here via Session.
+            .onChange(of: session.notificationsRequest) { _, _ in
+                isShowingNotifications = true
+            }
             .sheet(isPresented: $isShowingCreateOrg) {
                 CreateOrganizationView(isModal: true)
             }

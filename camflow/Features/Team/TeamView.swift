@@ -234,6 +234,7 @@ struct MemberEditorSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @Environment(Session.self) private var session
+    @Environment(AppServices.self) private var services
 
     @Query(filter: #Predicate<Project> { $0.deletedAt == nil }, sort: \Project.name)
     private var allProjects: [Project]
@@ -244,6 +245,8 @@ struct MemberEditorSheet: View {
     @State private var role: OrgMember.Role = .standard
     @State private var selectedProjectIDs: Set<UUID> = []
     @State private var isConfirmingDelete = false
+    @State private var isWorking = false
+    @State private var errorMessage: String?
     /// Set after a new invite is saved; switches the sheet to link sharing.
     @State private var invitedMember: OrgMember?
 
@@ -369,11 +372,23 @@ struct MemberEditorSheet: View {
                     Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(member == nil ? "Invite" : "Save") { save() }
-                        .disabled(!canSave)
+                    if isWorking {
+                        ProgressView()
+                    } else {
+                        Button(member == nil ? "Invite" : "Save") { save() }
+                            .disabled(!canSave)
+                    }
                 }
             }
             .onAppear(perform: loadExisting)
+            .alert(
+                "Couldn't invite member",
+                isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })
+            ) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(errorMessage ?? "")
+            }
             .alert("Remove Member", isPresented: $isConfirmingDelete) {
                 Button("Remove", role: .destructive) {
                     if let member {
@@ -413,10 +428,12 @@ struct MemberEditorSheet: View {
     }
 
     private func save() {
+        guard !isWorking else { return }
         let store = MemberStore(context: modelContext)
         let selectedProjects = projects.filter { selectedProjectIDs.contains($0.id) }
 
         if let member {
+            // Member edits stay local and are pushed by Phase 2's sync engine.
             member.name = name.trimmingCharacters(in: .whitespaces)
             member.phoneNumber = phoneNumber.trimmingCharacters(in: .whitespaces)
             member.title = title.trimmingCharacters(in: .whitespaces)
@@ -429,16 +446,28 @@ struct MemberEditorSheet: View {
             store.touch(member)
             dismiss()
         } else {
-            let invited = store.invite(
-                name: name.trimmingCharacters(in: .whitespaces),
-                phoneNumber: phoneNumber.trimmingCharacters(in: .whitespaces),
-                title: title.trimmingCharacters(in: .whitespaces),
-                role: session.can(.changeRoles) ? role : .standard,
-                projects: selectedProjects,
-                organization: session.activeOrganization
-            )
-            // Swap to the share step instead of dismissing.
-            invitedMember = invited
+            // New invites are created on the backend so the invite link the next
+            // step issues resolves against a real server-side member row.
+            guard let organization = session.activeOrganization else { return }
+            let inviteRole: OrgMember.Role = session.can(.changeRoles) ? role : .standard
+            isWorking = true
+            Task {
+                defer { isWorking = false }
+                do {
+                    let created = try await services.memberService.create(
+                        in: organization,
+                        name: name.trimmingCharacters(in: .whitespaces),
+                        phoneNumber: phoneNumber.trimmingCharacters(in: .whitespaces),
+                        title: title.trimmingCharacters(in: .whitespaces),
+                        role: inviteRole,
+                        projects: selectedProjects
+                    )
+                    // Swap to the share step instead of dismissing.
+                    invitedMember = created
+                } catch {
+                    errorMessage = error.localizedDescription
+                }
+            }
         }
     }
 }
@@ -448,7 +477,9 @@ struct MemberEditorSheet: View {
         for: OrgMember.self,
         configurations: ModelConfiguration(isStoredInMemoryOnly: true)
     )
+    let session = Session(context: container.mainContext)
     return TeamView()
         .modelContainer(container)
-        .environment(Session(context: container.mainContext))
+        .environment(session)
+        .environment(AppServices(modelContext: container.mainContext, session: session))
 }

@@ -19,6 +19,7 @@ struct PhotoViewerView: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    @Environment(AppServices.self) private var services
 
     init(photos: [Photo], initialIndex: Int = 0) {
         self.photos = photos
@@ -113,6 +114,15 @@ struct PhotoViewerView: View {
                         isShowingShareSheet = true
                     } label: {
                         Label("Share", systemImage: "square.and.arrow.up")
+                    }
+                    if currentPhoto?.processingStatus == .failed {
+                        Button {
+                            if let photo = currentPhoto {
+                                Task { try? await services.reprocessMedia(photo) }
+                            }
+                        } label: {
+                            Label("Reprocess Media", systemImage: "arrow.clockwise")
+                        }
                     }
                     Divider()
                     Button(role: .destructive) {
@@ -228,11 +238,14 @@ struct PhotoViewerView: View {
     }
 }
 
-/// One zoomable page with the photo and its annotation overlay.
+/// One zoomable page with the photo and its annotation overlay. Loads via
+/// `MediaProvider` (local file first, else the processed CDN variant).
 struct PhotoPageView: View {
     let photo: Photo
 
+    @Environment(AppServices.self) private var services
     @State private var image: UIImage?
+    @State private var didLoad = false
 
     var body: some View {
         Group {
@@ -251,17 +264,20 @@ struct PhotoPageView: View {
                             }
                         }
                 }
+            } else if didLoad && photo.processingStatus == .failed {
+                ContentUnavailableView("Couldn't process media", systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.white)
             } else {
                 ProgressView().tint(.white)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.black)
-        .task(id: photo.fileName) {
-            let fileName = photo.fileName
-            image = await Task.detached {
-                FileStorage.load(fileName, in: .photos).flatMap(UIImage.init(data:))
-            }.value
+        .task(id: photo.id) {
+            didLoad = false
+            let ref = MediaProvider.Ref(photo, organizationID: nil)
+            image = await services.mediaProvider.image(for: ref, variant: .full)
+            didLoad = true
         }
     }
 }
@@ -272,6 +288,7 @@ struct PhotoPageView: View {
 struct VideoPlayerPageView: View {
     let photo: Photo
 
+    @Environment(AppServices.self) private var services
     @State private var player: AVPlayer?
 
     var body: some View {
@@ -284,8 +301,12 @@ struct VideoPlayerPageView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.black)
-        .task(id: photo.fileName) {
-            player = AVPlayer(url: FileStorage.url(for: photo.fileName, in: .photos))
+        .task(id: photo.id) {
+            // Local file if present, else the processed (streamable) CDN URL.
+            let ref = MediaProvider.Ref(photo, organizationID: nil)
+            if let url = await services.mediaProvider.playbackURL(for: ref) {
+                player = AVPlayer(url: url)
+            }
         }
         .onDisappear {
             player?.pause()

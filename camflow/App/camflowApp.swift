@@ -4,9 +4,12 @@ import CoreServices
 
 @main
 struct CamFlowApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var locationService = LocationService()
     @State private var session: Session
+    @State private var services: AppServices
     @State private var showSplash = true
+    @Environment(\.scenePhase) private var scenePhase
 
     private let container: ModelContainer
 
@@ -30,6 +33,7 @@ struct CamFlowApp: App {
             TaskComment.self,
             PhotoComment.self,
             AppNotification.self,
+            MediaUpload.self,
         ])
         let container: ModelContainer
         do {
@@ -40,6 +44,7 @@ struct CamFlowApp: App {
         self.container = container
         let session = Session(context: container.mainContext)
         _session = State(initialValue: session)
+        _services = State(initialValue: AppServices(modelContext: container.mainContext, session: session))
 
         // Runs before the first render so the UI never shows pre-seed /
         // pre-override state (the debug role/plan args mutate rows the views
@@ -58,6 +63,25 @@ struct CamFlowApp: App {
                 RootCoordinatorView()
                     .environment(locationService)
                     .environment(session)
+                    .environment(services)
+                    .task {
+                        // Wire forced-sign-out, then refresh from the cloud on
+                        // cold launch (local-first UI is already on screen).
+                        await services.start()
+                        await services.hydrate()
+                    }
+                    .onChange(of: scenePhase) { _, phase in
+                        if phase == .active {
+                            // Sync + (re)open the realtime stream on foreground,
+                            // and free stale on-device media (throttled daily).
+                            services.syncNow()
+                            services.connectRealtime()
+                            services.purgeStaleMediaIfDue()
+                        } else {
+                            // Suspend the SSE stream while backgrounded.
+                            services.disconnectRealtime()
+                        }
+                    }
                     .onOpenURL { handle(url: $0) }
                     // Universal links also arrive via onOpenURL in the SwiftUI
                     // lifecycle; this covers the NSUserActivity delivery path.
@@ -77,12 +101,11 @@ struct CamFlowApp: App {
         .modelContainer(container)
     }
 
-    /// Routes incoming invite links (camflow:// and https://camflow.app);
-    /// `RootCoordinatorView` reacts to the pending code.
+    /// Routes incoming URLs — invite links (camflow:// and https://camflow.app)
+    /// and notification deep links — through the shared handler.
+    /// `RootCoordinatorView`/`HomeView` react to the resulting `Session` state.
     private func handle(url: URL) {
-        if let code = InviteLinks.code(from: url) {
-            session.setPendingInvite(code: code)
-        }
+        services.handleDeepLink(url)
     }
 
     /// First-launch convenience: a starter set of project status labels.

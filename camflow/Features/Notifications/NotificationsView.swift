@@ -10,6 +10,7 @@ struct NotificationsView: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    @Environment(AppServices.self) private var services
 
     @Query(filter: #Predicate<AppNotification> { $0.deletedAt == nil }, sort: \AppNotification.createdAt, order: .reverse)
     private var allNotifications: [AppNotification]
@@ -75,7 +76,13 @@ struct NotificationsView: View {
         }
         .swipeActions(edge: .leading) {
             Button {
-                NotificationStore(context: modelContext).toggleRead(note)
+                // Marking read persists server-side; "unread" is local-only
+                // (there is no server mark-unread).
+                if note.isRead {
+                    NotificationStore(context: modelContext).toggleRead(note)
+                } else {
+                    services.markNotificationRead(note)
+                }
             } label: {
                 Label(note.isRead ? "Unread" : "Read",
                       systemImage: note.isRead ? "envelope.badge" : "envelope.open")
@@ -123,7 +130,7 @@ struct NotificationsView: View {
     }
 
     private func open(_ note: AppNotification) {
-        NotificationStore(context: modelContext).markRead(note)
+        services.markNotificationRead(note)
         if let task = note.task {
             path.append(task)
         } else if let photo = note.photo {
@@ -134,7 +141,7 @@ struct NotificationsView: View {
     }
 
     private func markAllRead() {
-        NotificationStore(context: modelContext).markAllRead(notifications)
+        services.markAllNotificationsRead(notifications)
     }
 }
 

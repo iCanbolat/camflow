@@ -13,6 +13,18 @@ final class Photo {
         case video
     }
 
+    /// Server-side media-pipeline state (mirrors the backend `processing_status`).
+    /// Arrives via sync pull; the client never pushes it. `done` is the sane
+    /// fallback for local-origin/legacy rows so they never show a processing
+    /// spinner — display is always local-bytes-first regardless of this value.
+    enum ProcessingStatus: String, Codable {
+        case pending // row exists, no bytes uploaded yet
+        case queued // raw bytes committed, processing job enqueued
+        case processing
+        case done
+        case failed
+    }
+
     @Attribute(.unique) var id: UUID
     var capturedAt: Date
     var latitude: Double?
@@ -30,10 +42,19 @@ final class Photo {
     private var mediaTypeRaw: String?
     /// Playback length; nil for photos.
     var durationSeconds: Double?
+    // Optional raw string + computed enum: lightweight migration leaves the new
+    // column NULL, and SwiftData crashes casting NULL into a non-optional enum.
+    private var processingStatusRaw: String?
 
     var mediaType: MediaType {
         get { mediaTypeRaw.flatMap(MediaType.init(rawValue:)) ?? .photo }
         set { mediaTypeRaw = newValue.rawValue }
+    }
+
+    /// Server media-pipeline state; `.done` when unknown (local-origin/legacy).
+    var processingStatus: ProcessingStatus {
+        get { processingStatusRaw.flatMap(ProcessingStatus.init(rawValue:)) ?? .done }
+        set { processingStatusRaw = newValue.rawValue }
     }
 
     var project: Project?

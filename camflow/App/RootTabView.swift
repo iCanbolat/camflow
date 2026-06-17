@@ -10,6 +10,8 @@ enum AppTab: Hashable {
 }
 
 struct RootTabView: View {
+    @Environment(Session.self) private var session
+    @Environment(AppServices.self) private var services
     @State private var selection: AppTab = {
         #if DEBUG
         if let tab = DebugSupport.initialTab { return tab }
@@ -22,6 +24,20 @@ struct RootTabView: View {
     #endif
 
     var body: some View {
+        VStack(spacing: 0) {
+            SyncStatusBanner(
+                state: services.syncEngine.state,
+                isOnline: services.networkMonitor.isOnline,
+                onRetry: { services.syncNow() }
+            )
+            .animation(.easeInOut(duration: 0.25), value: services.syncEngine.state)
+            .animation(.easeInOut(duration: 0.25), value: services.networkMonitor.isOnline)
+
+            tabView
+        }
+    }
+
+    private var tabView: some View {
         TabView(selection: $selection) {
             Tab("Home", systemImage: "house.fill", value: AppTab.home) {
                 HomeView()
@@ -45,6 +61,10 @@ struct RootTabView: View {
                 selection = oldValue
                 isShowingCamera = true
             }
+        }
+        // A notification deep-link tap surfaces notifications from the Home tab.
+        .onChange(of: session.notificationsRequest) { _, _ in
+            selection = .home
         }
         .fullScreenCover(isPresented: $isShowingCamera) {
             CaptureView()

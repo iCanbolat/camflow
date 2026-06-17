@@ -10,9 +10,11 @@ struct InviteShareSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    @Environment(AppServices.self) private var services
 
     @State private var link: InviteLink?
     @State private var didCopy = false
+    @State private var errorMessage: String?
 
     private var organizationName: String {
         member.organization?.name ?? "CamFlow"
@@ -95,6 +97,11 @@ struct InviteShareSheet: View {
                             Label("More…", systemImage: "square.and.arrow.up")
                         }
                     }
+                } else if let errorMessage {
+                    Section {
+                        Label(errorMessage, systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(.secondary)
+                    }
                 } else {
                     Section {
                         HStack {
@@ -113,7 +120,11 @@ struct InviteShareSheet: View {
                 }
             }
             .task {
-                link = try? await LocalInviteService(context: modelContext).issueInvite(for: member)
+                do {
+                    link = try await services.inviteService.issueInvite(for: member)
+                } catch {
+                    errorMessage = error.localizedDescription
+                }
             }
         }
     }

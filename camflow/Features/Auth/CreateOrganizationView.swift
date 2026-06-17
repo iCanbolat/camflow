@@ -12,12 +12,15 @@ struct CreateOrganizationView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Environment(Session.self) private var session
+    @Environment(AppServices.self) private var services
 
     @State private var name = ""
     @State private var logoItem: PhotosPickerItem?
     @State private var logoImage: UIImage?
     @State private var isShowingCodeEntry = false
     @State private var clipboardCode: String?
+    @State private var isWorking = false
+    @State private var errorMessage: String?
 
     private var trimmedName: String {
         name.trimmingCharacters(in: .whitespaces)
@@ -75,17 +78,23 @@ struct CreateOrganizationView: View {
 
             VStack(spacing: 12) {
                 Button(action: create) {
-                    Text("Create")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
+                    Group {
+                        if isWorking {
+                            ProgressView()
+                        } else {
+                            Text("Create").font(.headline)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
-                .disabled(trimmedName.isEmpty)
+                .disabled(trimmedName.isEmpty || isWorking)
 
                 if !isModal {
                     Button("Have an invite code?") { isShowingCodeEntry = true }
                         .font(.footnote.weight(.medium))
+                        .disabled(isWorking)
                 }
             }
             .padding(.horizontal, 24)
@@ -100,6 +109,14 @@ struct CreateOrganizationView: View {
         }
         .sheet(isPresented: $isShowingCodeEntry) {
             InviteCodeEntrySheet()
+        }
+        .alert(
+            "Couldn't create organization",
+            isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(errorMessage ?? "")
         }
         .task {
             // Onboarding step only; InviteClipboard's once-per-launch flag
@@ -129,7 +146,7 @@ struct CreateOrganizationView: View {
     }
 
     private func create() {
-        guard let account = session.currentAccount else { return }
+        guard !isWorking, let account = session.currentAccount else { return }
         let store = OrganizationStore(context: modelContext)
         // One owned org per user: if they already own one, just activate it.
         if let existing = store.ownedOrganization(for: account) {
@@ -137,18 +154,26 @@ struct CreateOrganizationView: View {
             if isModal { dismiss() }
             return
         }
-        let org = store.create(name: trimmedName, owner: account)
 
-        if let logoImage, let data = logoImage.pngData() {
-            let fileName = "logo-\(org.id.uuidString).png"
-            _ = try? FileStorage.save(data, named: fileName, in: .branding)
-            org.logoFileName = fileName
-        }
-        store.touch(org)
-        session.setActiveOrg(org)
-
-        if isModal {
-            dismiss()
+        isWorking = true
+        Task {
+            defer { isWorking = false }
+            do {
+                let org = try await services.createOrganization(name: trimmedName)
+                // Logo bytes upload with the Phase 3 media pipeline; for now the
+                // file is kept on-device and the name marks the org locally so
+                // it survives the next pull (and syncs when push lands).
+                if let logoImage, let data = logoImage.pngData() {
+                    let fileName = "logo-\(org.id.uuidString).png"
+                    _ = try? FileStorage.save(data, named: fileName, in: .branding)
+                    org.logoFileName = fileName
+                    store.touch(org)
+                }
+                session.setActiveOrg(org)
+                if isModal { dismiss() }
+            } catch {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 }
@@ -158,7 +183,9 @@ struct CreateOrganizationView: View {
         for: Account.self,
         configurations: ModelConfiguration(isStoredInMemoryOnly: true)
     )
+    let session = Session(context: container.mainContext)
     return CreateOrganizationView()
         .modelContainer(container)
-        .environment(Session(context: container.mainContext))
+        .environment(session)
+        .environment(AppServices(modelContext: container.mainContext, session: session))
 }

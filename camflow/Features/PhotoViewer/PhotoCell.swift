@@ -1,10 +1,14 @@
 import SwiftUI
 
-/// Square thumbnail cell for photo grids, with an annotation badge.
+/// Square thumbnail cell for photo grids, with an annotation badge. Loads via
+/// `MediaProvider` (local file first, else a downloaded CDN thumbnail). When no
+/// bytes are available yet, the placeholder reflects the server processing state.
 struct PhotoCell: View {
     let photo: Photo
 
+    @Environment(AppServices.self) private var services
     @State private var thumbnail: UIImage?
+    @State private var didLoad = false
 
     var body: some View {
         Color.clear
@@ -15,12 +19,7 @@ struct PhotoCell: View {
                         .resizable()
                         .scaledToFill()
                 } else {
-                    Rectangle()
-                        .fill(.fill.tertiary)
-                        .overlay {
-                            Image(systemName: "photo")
-                                .foregroundStyle(.tertiary)
-                        }
+                    placeholder
                 }
             }
             .clipped()
@@ -59,11 +58,37 @@ struct PhotoCell: View {
                         .padding(4)
                 }
             }
-            .task(id: photo.thumbnailFileName) {
-                let fileName = photo.thumbnailFileName
-                thumbnail = await Task.detached {
-                    FileStorage.load(fileName, in: .photos).flatMap(UIImage.init(data:))
-                }.value
+            .task(id: photo.id) {
+                didLoad = false
+                let ref = MediaProvider.Ref(photo, organizationID: nil)
+                thumbnail = await services.mediaProvider.image(for: ref, variant: .thumbnail)
+                didLoad = true
             }
+    }
+
+    /// No bytes (yet): show a loading spinner while fetching, a failed badge when
+    /// the server pipeline failed, or a neutral photo glyph.
+    @ViewBuilder
+    private var placeholder: some View {
+        Rectangle()
+            .fill(.fill.tertiary)
+            .overlay {
+                if photo.processingStatus == .failed {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                } else if !didLoad || isProcessing {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: photo.isVideo ? "video" : "photo")
+                        .foregroundStyle(.tertiary)
+                }
+            }
+    }
+
+    private var isProcessing: Bool {
+        switch photo.processingStatus {
+        case .pending, .queued, .processing: true
+        case .done, .failed: false
+        }
     }
 }

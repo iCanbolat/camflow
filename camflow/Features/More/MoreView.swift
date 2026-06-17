@@ -3,7 +3,18 @@ import SwiftData
 
 struct MoreView: View {
     @Environment(Session.self) private var session
+    @Environment(AppServices.self) private var services
     @State private var isConfirmingSignOut = false
+
+    private var syncStatusText: String {
+        guard services.networkMonitor.isOnline else { return String(localized: "Offline") }
+        switch services.syncEngine.state {
+        case .idle: return String(localized: "Up to date")
+        case .syncing: return String(localized: "Syncing…")
+        case .offline: return String(localized: "Offline")
+        case .error: return String(localized: "Sync failed")
+        }
+    }
 
     var body: some View {
         NavigationStack {
@@ -86,6 +97,23 @@ struct MoreView: View {
                 }
 
                 Section {
+                    Button {
+                        services.syncNow()
+                    } label: {
+                        Label("Sync Now", systemImage: "arrow.triangle.2.circlepath")
+                    }
+                    .disabled(services.syncEngine.state == .syncing || !services.networkMonitor.isOnline)
+                    LabeledContent("Status") { Text(syncStatusText) }
+                    if let last = services.syncEngine.lastSyncedAt {
+                        LabeledContent("Last Synced") {
+                            Text(last, format: .relative(presentation: .named))
+                        }
+                    }
+                } header: {
+                    Text("Sync")
+                }
+
+                Section {
                     LabeledContent("Version") {
                         Text(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0")
                     }
@@ -100,9 +128,9 @@ struct MoreView: View {
             .navigationTitle("More")
             .confirmationDialog("Sign out of CamFlow?", isPresented: $isConfirmingSignOut, titleVisibility: .visible) {
                 Button("Sign Out", role: .destructive) {
-                    // Re-prime permissions only after the next sign-in completes
-                    // so a different account still sees the gate if needed.
-                    session.signOut()
+                    // Revoke the session server-side, wipe the local store, and
+                    // route back to auth (cloud is the source of truth on re-login).
+                    Task { await services.signOut() }
                 }
                 Button("Cancel", role: .cancel) {}
             }
@@ -129,7 +157,9 @@ struct AccountAvatar: View {
         for: Account.self,
         configurations: ModelConfiguration(isStoredInMemoryOnly: true)
     )
+    let session = Session(context: container.mainContext)
     return MoreView()
         .modelContainer(container)
-        .environment(Session(context: container.mainContext))
+        .environment(session)
+        .environment(AppServices(modelContext: container.mainContext, session: session))
 }

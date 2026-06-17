@@ -1,13 +1,16 @@
 import SwiftUI
 import AVFoundation
+import UserNotifications
 
-/// Explains why CamFlow needs camera, microphone + location before the system prompts.
+/// Explains why CamFlow needs camera, microphone, location + notifications before the system prompts.
 struct PermissionPrimingView: View {
     var onContinue: () -> Void
 
     @Environment(LocationService.self) private var locationService
+    @Environment(AppServices.self) private var services
     @State private var cameraGranted = AVCaptureDevice.authorizationStatus(for: .video) == .authorized
     @State private var microphoneGranted = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+    @State private var notificationsGranted = false
 
     var body: some View {
         VStack(spacing: 32) {
@@ -54,6 +57,18 @@ struct PermissionPrimingView: View {
                 ) {
                     locationService.requestAuthorization()
                 }
+
+                PermissionCard(
+                    systemImage: "bell.fill",
+                    title: "Notifications",
+                    message: "Get alerts for assignments, mentions, and comments.",
+                    isGranted: notificationsGranted
+                ) {
+                    Task {
+                        await services.requestPushAuthorization()
+                        notificationsGranted = await isNotificationsAuthorized()
+                    }
+                }
             }
             .padding(.horizontal, 24)
 
@@ -72,6 +87,11 @@ struct PermissionPrimingView: View {
             .padding(.bottom, 16)
         }
         .background(Color(.systemGroupedBackground).ignoresSafeArea())
+        .task { notificationsGranted = await isNotificationsAuthorized() }
+    }
+
+    private func isNotificationsAuthorized() async -> Bool {
+        await UNUserNotificationCenter.current().notificationSettings().authorizationStatus == .authorized
     }
 }
 

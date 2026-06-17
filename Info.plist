@@ -24,6 +24,11 @@
 	<array>
 		<string>whatsapp</string>
 	</array>
+	<!-- APNs: lets a content-available/alert push wake the app to refresh. -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+	</array>
 	<key>UILaunchScreen</key>
 	<dict>
 		<key>UIImageName</key>

@@ -8,6 +8,7 @@ import AuthenticationServices
 struct AuthView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(Session.self) private var session
+    @Environment(AppServices.self) private var services
 
     private enum Mode: Hashable {
         case signIn
@@ -24,8 +25,9 @@ struct AuthView: View {
     @State private var errorMessage: String?
     @State private var isShowingCodeEntry = false
     @State private var clipboardCode: String?
+    @State private var isShowingGoogleNotice = false
 
-    private var service: any AuthService { MockAuthService(context: modelContext) }
+    private var service: any AuthService { services.authService }
 
     private var canSubmit: Bool {
         !email.isEmpty && !password.isEmpty && !isWorking &&
@@ -68,19 +70,16 @@ struct AuthView: View {
                     .font(.footnote.weight(.medium))
 
                 #if DEBUG
-                // A plain Xcode Run passes no launch arguments, so the store is
-                // empty and the seeded demo account doesn't exist — manual
-                // demo sign-in then fails with "No account found". This seeds it
-                // on demand and signs in through the normal auth path.
+                // Cloud auth is now the only real path. For offline simulator
+                // work this seeds the local demo data and signs into the seeded
+                // account directly (no backend), bypassing the network.
                 Button("Sign in as demo (DEBUG)") {
                     DebugSupport.seedSampleData(context: modelContext)
-                    email = DebugSupport.demoEmail
-                    password = DebugSupport.demoPassword
-                    authenticate {
-                        try await service.signIn(
-                            email: DebugSupport.demoEmail,
-                            password: DebugSupport.demoPassword
-                        )
+                    let descriptor = FetchDescriptor<Account>(
+                        predicate: #Predicate { $0.email == "demo@camflow.app" && $0.deletedAt == nil }
+                    )
+                    if let account = (try? modelContext.fetch(descriptor))?.first {
+                        session.signIn(account)
                     }
                 }
                 .font(.footnote.weight(.medium))
@@ -116,7 +115,12 @@ struct AuthView: View {
         .alert("Forgot Password", isPresented: $isShowingResetInfo) {
             Button("OK", role: .cancel) {}
         } message: {
-            Text("Password reset arrives with cloud sync. For now, sign in with Apple or Google, or create a new account.")
+            Text("Password reset arrives soon. For now, sign in with Apple, or create a new account.")
+        }
+        .alert("Google Sign-In", isPresented: $isShowingGoogleNotice) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Google sign-in is coming soon. Please use email or Apple for now.")
         }
         .alert(
             "Sign-in failed",
@@ -222,11 +226,10 @@ struct AuthView: View {
 
     private var socialButtons: some View {
         VStack(spacing: 12) {
-            SignInWithAppleButton(.continue) { _ in
-            } onCompletion: { _ in
-                // The scaffold resolves a local Apple account regardless of the
-                // real credential result.
-                authenticate { try await service.signInWithApple() }
+            SignInWithAppleButton(.continue) { request in
+                request.requestedScopes = [.fullName, .email]
+            } onCompletion: { result in
+                handleApple(result)
             }
             .signInWithAppleButtonStyle(.white)
             .frame(height: 52)
@@ -238,7 +241,7 @@ struct AuthView: View {
             .disabled(isWorking)
 
             Button {
-                authenticate { try await service.signInWithGoogle() }
+                isShowingGoogleNotice = true
             } label: {
                 HStack(spacing: 10) {
                     GoogleGIcon(size: 18)
@@ -275,6 +278,28 @@ struct AuthView: View {
         }
     }
 
+    /// Exchanges the Apple credential's identity token with the backend.
+    private func handleApple(_ result: Result<ASAuthorization, Error>) {
+        switch result {
+        case let .success(auth):
+            guard let credential = auth.credential as? ASAuthorizationAppleIDCredential,
+                  let tokenData = credential.identityToken,
+                  let token = String(data: tokenData, encoding: .utf8) else {
+                errorMessage = String(localized: "Apple sign-in didn't return a valid token.")
+                return
+            }
+            let displayName = credential.fullName.map {
+                PersonNameComponentsFormatter().string(from: $0)
+            }?.nilIfBlank
+            authenticate { try await service.signInWithApple(identityToken: token, displayName: displayName) }
+        case let .failure(error):
+            // A user-cancelled flow isn't worth surfacing as an error.
+            if (error as? ASAuthorizationError)?.code != .canceled {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
     private func authenticate(_ operation: @escaping () async throws -> Account) {
         guard !isWorking else { return }
         isWorking = true
@@ -282,11 +307,22 @@ struct AuthView: View {
             defer { isWorking = false }
             do {
                 let account = try await operation()
+                // Pull the account's orgs + members before routing so the
+                // coordinator lands on the app (not org creation) for returners.
+                await services.hydrate()
                 session.signIn(account)
             } catch {
                 errorMessage = error.localizedDescription
             }
         }
+    }
+}
+
+private extension String {
+    /// nil when the string is empty or only whitespace.
+    var nilIfBlank: String? {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
 
@@ -347,7 +383,9 @@ struct GoogleGIcon: View {
         for: Account.self,
         configurations: ModelConfiguration(isStoredInMemoryOnly: true)
     )
+    let session = Session(context: container.mainContext)
     return AuthView()
         .modelContainer(container)
-        .environment(Session(context: container.mainContext))
+        .environment(session)
+        .environment(AppServices(modelContext: container.mainContext, session: session))
 }

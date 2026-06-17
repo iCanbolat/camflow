@@ -4,9 +4,9 @@ import SwiftData
 /// A person in the organization. Members are invited with a shareable link
 /// (`https://camflow.app/invite/<code>`); everyone sees all of the
 /// organization's projects, and project assignment drives task assignment and
-/// (future) notifications. In the local-first v1 redemption happens on-device
-/// via `LocalInviteService`; the cloud phase moves code issuance/redemption to
-/// the backend and flips members to `.active` when they join.
+/// notifications. Code issuance, validation and redemption live on the backend
+/// (`ApiInviteService`); redeeming flips the member to `.active` and links it to
+/// the redeeming account across devices.
 @Model
 final class OrgMember {
     enum Role: String, Codable, CaseIterable {

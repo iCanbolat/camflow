@@ -7,6 +7,7 @@ import SwiftUI
 /// "ask your admin" branch (unlike `UpgradePromptSheet`).
 struct PaywallView: View {
     @Environment(Session.self) private var session
+    @Environment(AppServices.self) private var services
 
     @State private var pendingTier: PlanTier?
 
@@ -97,7 +98,7 @@ struct PaywallView: View {
     private var footer: some View {
         VStack(spacing: 12) {
             Button("Sign Out", role: .destructive) {
-                session.signOut()
+                Task { await services.signOut() }
             }
             .font(.subheadline)
 

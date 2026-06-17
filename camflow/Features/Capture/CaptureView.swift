@@ -10,6 +10,7 @@ struct CaptureView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(LocationService.self) private var locationService
     @Environment(Session.self) private var session
+    @Environment(AppServices.self) private var services
 
     @Query(filter: #Predicate<Project> { $0.deletedAt == nil }, sort: \Project.updatedAt, order: .reverse)
     private var allProjects: [Project]
@@ -769,6 +770,8 @@ struct CaptureView: View {
             }
         }
         drafts.removeAll()
+        // Kick the background uploader for the photos/videos just saved.
+        services.uploadPendingMedia()
         dismiss()
     }
 
