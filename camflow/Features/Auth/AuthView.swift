@@ -1,6 +1,9 @@
 import SwiftUI
 import SwiftData
 import AuthenticationServices
+#if canImport(GoogleSignIn)
+import GoogleSignIn
+#endif
 
 /// Sign in / sign up with email-password, Apple, or Google. On success it hands
 /// the resolved `Account` to `Session`; the root coordinator then advances to
@@ -241,7 +244,11 @@ struct AuthView: View {
             .disabled(isWorking)
 
             Button {
+                #if canImport(GoogleSignIn)
+                Task { await handleGoogle() }
+                #else
                 isShowingGoogleNotice = true
+                #endif
             } label: {
                 HStack(spacing: 10) {
                     GoogleGIcon(size: 18)
@@ -299,6 +306,42 @@ struct AuthView: View {
             }
         }
     }
+
+    #if canImport(GoogleSignIn)
+    /// Presents Google Sign-In, then exchanges the returned id token with the
+    /// backend (which verifies it against `GOOGLE_CLIENT_ID`).
+    @MainActor
+    private func handleGoogle() async {
+        guard !isWorking else { return }
+        guard let presenter = Self.topViewController() else {
+            errorMessage = String(localized: "Couldn't present Google sign-in.")
+            return
+        }
+        do {
+            let result = try await GIDSignIn.sharedInstance.signIn(withPresenting: presenter)
+            guard let idToken = result.user.idToken?.tokenString else {
+                errorMessage = String(localized: "Google sign-in didn't return a valid token.")
+                return
+            }
+            authenticate { try await service.signInWithGoogle(idToken: idToken) }
+        } catch let error as GIDSignInError where error.code == .canceled {
+            // User dismissed the sheet — not an error worth surfacing.
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Topmost presented controller of the active foreground scene (Google's SDK
+    /// needs a presenter and SwiftUI doesn't hand us one directly).
+    private static func topViewController() -> UIViewController? {
+        let scene = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive }
+        var top = scene?.keyWindow?.rootViewController
+        while let presented = top?.presentedViewController { top = presented }
+        return top
+    }
+    #endif
 
     private func authenticate(_ operation: @escaping () async throws -> Account) {
         guard !isWorking else { return }

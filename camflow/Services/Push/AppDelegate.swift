@@ -1,5 +1,8 @@
 import UIKit
 import UserNotifications
+#if canImport(GoogleSignIn)
+import GoogleSignIn
+#endif
 
 /// Minimal `UIApplicationDelegate` adaptor for the SwiftUI app: APNs token
 /// registration, notification presentation/taps, and the background-`URLSession`
@@ -12,6 +15,19 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     ) -> Bool {
         UNUserNotificationCenter.current().delegate = self
         return true
+    }
+
+    /// Completes the Google Sign-In redirect (no-op until the SDK is linked).
+    func application(
+        _ app: UIApplication,
+        open url: URL,
+        options: [UIApplication.OpenURLOptionsKey: Any] = [:]
+    ) -> Bool {
+        #if canImport(GoogleSignIn)
+        return GIDSignIn.sharedInstance.handle(url)
+        #else
+        return false
+        #endif
     }
 
     func application(

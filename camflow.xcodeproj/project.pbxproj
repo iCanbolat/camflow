@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		518C814B2FE424A400A3928F /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = 518C814A2FE424A400A3928F /* GoogleSignIn */; };
 		CAF100000000000000000001 /* PhoneNumberKit in Frameworks */ = {isa = PBXBuildFile; productRef = CAF100000000000000000002 /* PhoneNumberKit */; };
 /* End PBXBuildFile section */
 
@@ -28,6 +29,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				CAF100000000000000000001 /* PhoneNumberKit in Frameworks */,
+				518C814B2FE424A400A3928F /* GoogleSignIn in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -71,6 +73,7 @@
 			name = camflow;
 			packageProductDependencies = (
 				CAF100000000000000000002 /* PhoneNumberKit */,
+				518C814A2FE424A400A3928F /* GoogleSignIn */,
 			);
 			productName = camflow;
 			productReference = 517776A42FD9A28500D3C5C1 /* camflow.app */;
@@ -102,6 +105,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				CAF100000000000000000003 /* XCRemoteSwiftPackageReference "PhoneNumberKit" */,
+				518C81492FE424A400A3928F /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 517776A52FD9A28500D3C5C1 /* Products */;
@@ -351,6 +355,14 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		518C81492FE424A400A3928F /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/google/GoogleSignIn-iOS";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 9.2.0;
+			};
+		};
 		CAF100000000000000000003 /* XCRemoteSwiftPackageReference "PhoneNumberKit" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/PhoneNumberKit/PhoneNumberKit";
@@ -362,6 +374,11 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		518C814A2FE424A400A3928F /* GoogleSignIn */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 518C81492FE424A400A3928F /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
+			productName = GoogleSignIn;
+		};
 		CAF100000000000000000002 /* PhoneNumberKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = CAF100000000000000000003 /* XCRemoteSwiftPackageReference "PhoneNumberKit" */;
