@@ -628,7 +628,9 @@ struct CaptureView: View {
         withAnimation(.easeOut(duration: 0.15)) { shutterFlash = true }
         withAnimation(.easeIn(duration: 0.15).delay(0.1)) { shutterFlash = false }
 
-        let location = locationService.lastKnownLocation
+        // A fresh, high-accuracy fix taken at the shutter — the evidence the
+        // server grades. Nil when unauthorized/unavailable (→ server `unverified`).
+        let ev = locationEvidence(await locationService.verifiedFix()?.location)
         let thumbnail = await Task.detached {
             ImageProcessor.makeThumbnail(from: data).flatMap(UIImage.init(data:))
         }.value
@@ -636,10 +638,29 @@ struct CaptureView: View {
         drafts.append(CapturedDraft(
             media: .photo(imageData: data),
             thumbnail: thumbnail ?? UIImage(data: data) ?? UIImage(),
-            latitude: location?.coordinate.latitude,
-            longitude: location?.coordinate.longitude,
+            latitude: ev.lat,
+            longitude: ev.lon,
+            locationAccuracyM: ev.accuracy,
+            locationFixAt: ev.fixAt,
+            isLocationSimulated: ev.simulated,
             source: .camera
         ))
+    }
+
+    /// Flattens an optional fix into the capture-evidence fields a draft carries.
+    /// A negative `horizontalAccuracy` (invalid fix) maps to nil accuracy.
+    private func locationEvidence(
+        _ location: CLLocation?
+    ) -> (lat: Double?, lon: Double?, accuracy: Double?, fixAt: Date?, simulated: Bool) {
+        guard let location else { return (nil, nil, nil, nil, false) }
+        let accuracy = location.horizontalAccuracy >= 0 ? location.horizontalAccuracy : nil
+        return (
+            location.coordinate.latitude,
+            location.coordinate.longitude,
+            accuracy,
+            location.timestamp,
+            location.isSimulatedFix
+        )
     }
 
     /// Kicks off movie recording; the completion adopts the finished file.
@@ -696,11 +717,15 @@ struct CaptureView: View {
             return (thumbnail, duration)
         }.value
 
+        let ev = locationEvidence(location)
         drafts.append(CapturedDraft(
             media: .video(url: tempURL, duration: info.1),
             thumbnail: info.0 ?? UIImage(),
-            latitude: location?.coordinate.latitude,
-            longitude: location?.coordinate.longitude,
+            latitude: ev.lat,
+            longitude: ev.lon,
+            locationAccuracyM: ev.accuracy,
+            locationFixAt: ev.fixAt,
+            isLocationSimulated: ev.simulated,
             source: .camera
         ))
     }
@@ -749,6 +774,9 @@ struct CaptureView: View {
                     capturedAt: draft.capturedAt,
                     latitude: draft.latitude,
                     longitude: draft.longitude,
+                    locationAccuracyM: draft.locationAccuracyM,
+                    locationFixAt: draft.locationFixAt,
+                    isLocationSimulated: draft.isLocationSimulated,
                     source: draft.source,
                     project: selectedProject,
                     author: author
@@ -762,6 +790,9 @@ struct CaptureView: View {
                     capturedAt: draft.capturedAt,
                     latitude: draft.latitude,
                     longitude: draft.longitude,
+                    locationAccuracyM: draft.locationAccuracyM,
+                    locationFixAt: draft.locationFixAt,
+                    isLocationSimulated: draft.isLocationSimulated,
                     project: selectedProject,
                     author: author
                 ) else { continue }

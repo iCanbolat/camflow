@@ -14,6 +14,9 @@ struct PhotoStore {
         capturedAt: Date = .now,
         latitude: Double? = nil,
         longitude: Double? = nil,
+        locationAccuracyM: Double? = nil,
+        locationFixAt: Date? = nil,
+        isLocationSimulated: Bool = false,
         source: Photo.Source,
         project: Project?,
         author: OrgMember? = nil
@@ -35,6 +38,9 @@ struct PhotoStore {
             capturedAt: capturedAt,
             latitude: latitude,
             longitude: longitude,
+            locationAccuracyM: locationAccuracyM,
+            locationFixAt: locationFixAt,
+            isLocationSimulated: isLocationSimulated,
             source: source,
             project: project,
             author: author
@@ -58,6 +64,9 @@ struct PhotoStore {
         capturedAt: Date = .now,
         latitude: Double? = nil,
         longitude: Double? = nil,
+        locationAccuracyM: Double? = nil,
+        locationFixAt: Date? = nil,
+        isLocationSimulated: Bool = false,
         project: Project?,
         author: OrgMember? = nil
     ) async throws -> Photo {
@@ -80,6 +89,9 @@ struct PhotoStore {
             capturedAt: capturedAt,
             latitude: latitude,
             longitude: longitude,
+            locationAccuracyM: locationAccuracyM,
+            locationFixAt: locationFixAt,
+            isLocationSimulated: isLocationSimulated,
             source: .camera,
             mediaType: .video,
             durationSeconds: duration,

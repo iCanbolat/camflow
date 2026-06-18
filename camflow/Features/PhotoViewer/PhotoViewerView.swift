@@ -199,6 +199,8 @@ struct PhotoViewerView: View {
                     .lineLimit(2)
             }
 
+            verificationRow(for: photo)
+
             if !photo.tags.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 6) {
@@ -235,6 +237,41 @@ struct PhotoViewerView: View {
         .padding(.horizontal)
         .padding(.vertical, 10)
         .background(.black.opacity(0.6))
+    }
+
+    /// Location/time trust line: the server verdict plus the proof token (last 8
+    /// hex of the tamper-evidence signature) so the stamp can be cited.
+    @ViewBuilder
+    private func verificationRow(for photo: Photo) -> some View {
+        let token = photo.captureSignature.map { String($0.suffix(8)) }
+        switch photo.captureVerification {
+        case .verified:
+            HStack(spacing: 6) {
+                Label {
+                    Text("Location verified")
+                } icon: {
+                    Image(systemName: "checkmark.seal.fill")
+                }
+                if let accuracy = photo.locationAccuracyM {
+                    Text("±\(Int(accuracy.rounded()))m")
+                }
+                if let token { Text("#\(token)").monospaced() }
+            }
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.green)
+        case .flagged:
+            Label("Location flagged — simulated or clock mismatch",
+                  systemImage: "exclamationmark.shield.fill")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.red)
+        case .unverified:
+            Label(photo.source == .imported
+                  ? "Imported — location unverified"
+                  : "Location unverified",
+                  systemImage: "location.slash")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.white.opacity(0.6))
+        }
     }
 }
 

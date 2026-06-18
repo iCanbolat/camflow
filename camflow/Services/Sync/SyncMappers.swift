@@ -246,6 +246,9 @@ nonisolated enum SyncMappers {
             photo.capturedAt = row.date("capturedAt") ?? photo.capturedAt
             photo.latitude = row.double("latitude")
             photo.longitude = row.double("longitude")
+            photo.locationAccuracyM = row.double("locationAccuracyM")
+            photo.locationFixAt = row.date("locationFixAt")
+            photo.isLocationSimulated = row.bool("isLocationSimulated") ?? false
             photo.fileName = row.string("fileName") ?? ""
             photo.thumbnailFileName = row.string("thumbnailFileName") ?? ""
             photo.caption = row.string("caption") ?? ""
@@ -256,6 +259,11 @@ nonisolated enum SyncMappers {
             photo.tags = row.uuids("tagIds").compactMap { find(Tag.self, $0, in: ctx) }
             // Server-owned media-pipeline state (Phase 3); client never pushes it.
             photo.processingStatus = Photo.ProcessingStatus(rawValue: row.string("processingStatus") ?? "") ?? .done
+            // Server-derived capture verification; client never pushes it.
+            photo.captureVerification = Photo.CaptureVerification(rawValue: row.string("captureVerification") ?? "") ?? .unverified
+            photo.clockSkewSeconds = row.double("clockSkewSeconds")
+            photo.captureSignature = row.string("captureSignature")
+            photo.serverReceivedAt = row.date("serverReceivedAt")
         }
     }
 
@@ -450,6 +458,9 @@ extension Photo: SyncPushable {
             "capturedAt": SyncJSON.date(capturedAt),
             "latitude": SyncJSON.double(latitude),
             "longitude": SyncJSON.double(longitude),
+            "locationAccuracyM": SyncJSON.double(locationAccuracyM),
+            "locationFixAt": SyncJSON.date(locationFixAt),
+            "isLocationSimulated": .bool(isLocationSimulated),
             "fileName": .string(fileName),
             "thumbnailFileName": .string(thumbnailFileName),
             "caption": .string(caption),

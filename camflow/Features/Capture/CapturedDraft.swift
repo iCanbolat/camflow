@@ -21,6 +21,10 @@ final class CapturedDraft: Identifiable {
     let capturedAt: Date
     let latitude: Double?
     let longitude: Double?
+    /// Capture evidence — graded server-side into a verification verdict.
+    let locationAccuracyM: Double?
+    let locationFixAt: Date?
+    let isLocationSimulated: Bool
     let source: Photo.Source
     var caption: String = ""
     /// Vector annotation document (JSON). Photos only — videos stay nil.
@@ -32,6 +36,9 @@ final class CapturedDraft: Identifiable {
         capturedAt: Date = .now,
         latitude: Double? = nil,
         longitude: Double? = nil,
+        locationAccuracyM: Double? = nil,
+        locationFixAt: Date? = nil,
+        isLocationSimulated: Bool = false,
         source: Photo.Source = .camera
     ) {
         self.media = media
@@ -39,6 +46,9 @@ final class CapturedDraft: Identifiable {
         self.capturedAt = capturedAt
         self.latitude = latitude
         self.longitude = longitude
+        self.locationAccuracyM = locationAccuracyM
+        self.locationFixAt = locationFixAt
+        self.isLocationSimulated = isLocationSimulated
         self.source = source
     }
 

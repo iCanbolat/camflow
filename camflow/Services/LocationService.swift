@@ -47,6 +47,26 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
         }
     }
 
+    /// A high-accuracy one-shot fix for stamping a capture as evidence. Requests
+    /// `Best` accuracy and returns the raw `CLLocation` (carrying its own
+    /// `timestamp`/`horizontalAccuracy`) plus whether the OS reports the fix as
+    /// software-simulated. Returns nil when unauthorized or no fix arrives — the
+    /// caller stamps without location (the server then grades it `unverified`).
+    func verifiedFix() async -> (location: CLLocation, isSimulated: Bool)? {
+        guard isAuthorized else { return nil }
+        manager.desiredAccuracy = kCLLocationAccuracyBest
+        defer { manager.desiredAccuracy = kCLLocationAccuracyNearestTenMeters }
+        do {
+            let location = try await withCheckedThrowingContinuation { continuation in
+                oneShotContinuations.append(continuation)
+                manager.requestLocation()
+            }
+            return (location, location.isSimulatedFix)
+        } catch {
+            return nil
+        }
+    }
+
     // MARK: - CLLocationManagerDelegate
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
@@ -68,5 +88,13 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
         let pending = oneShotContinuations
         oneShotContinuations.removeAll()
         pending.forEach { $0.resume(throwing: error) }
+    }
+}
+
+extension CLLocation {
+    /// Whether the OS attributes this fix to software simulation (e.g. Xcode/
+    /// Simulator location, or a tweaked-location tool). A mock-detection signal.
+    var isSimulatedFix: Bool {
+        sourceInformation?.isSimulatedBySoftware ?? false
     }
 }

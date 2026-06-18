@@ -34,6 +34,9 @@ struct PhotoCell: View {
                         .padding(4)
                 }
             }
+            .overlay(alignment: .topLeading) {
+                verificationBadge
+            }
             .overlay(alignment: .bottomLeading) {
                 if photo.isVideo {
                     HStack(spacing: 3) {
@@ -89,6 +92,30 @@ struct PhotoCell: View {
         switch photo.processingStatus {
         case .pending, .queued, .processing: true
         case .done, .failed: false
+        }
+    }
+
+    /// Location/time trust seal. Only the loud states show in the grid (a ✓ for a
+    /// verified stamp, a ⚠ for a flagged one); `unverified` stays uncluttered.
+    @ViewBuilder
+    private var verificationBadge: some View {
+        switch photo.captureVerification {
+        case .verified:
+            Image(systemName: "checkmark.seal.fill")
+                .font(.caption2.bold())
+                .foregroundStyle(.white, .green)
+                .padding(4)
+                .background(.black.opacity(0.4), in: Circle())
+                .padding(4)
+        case .flagged:
+            Image(systemName: "exclamationmark.shield.fill")
+                .font(.caption2.bold())
+                .foregroundStyle(.white, .red)
+                .padding(4)
+                .background(.black.opacity(0.4), in: Circle())
+                .padding(4)
+        case .unverified:
+            EmptyView()
         }
     }
 }
