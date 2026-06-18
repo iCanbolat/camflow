@@ -97,7 +97,7 @@ struct ReportBuilderView: View {
         ScrollView {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 2), count: 3), spacing: 2) {
                 ForEach(availablePhotos) { photo in
-                    PhotoCell(photo: photo)
+                    PhotoCell(photo: photo, showAuthor: false)
                         .overlay(alignment: .bottomTrailing) {
                             Image(systemName: selectedIDs.contains(photo.id) ? "checkmark.circle.fill" : "circle")
                                 .font(.title3)

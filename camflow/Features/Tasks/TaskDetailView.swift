@@ -51,6 +51,9 @@ struct TaskDetailView: View {
             photosSection
             commentsSection
         }
+        // Tapping or scrolling the thread dismisses the comment keyboard.
+        .scrollDismissesKeyboard(.interactively)
+        .simultaneousGesture(TapGesture().onEnded { dismissKeyboard() })
         .navigationTitle(task.title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

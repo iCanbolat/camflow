@@ -43,6 +43,9 @@ struct PhotoCommentsSheet: View {
                     .listStyle(.plain)
                 }
             }
+            // Tapping or scrolling the thread dismisses the comment keyboard.
+            .scrollDismissesKeyboard(.interactively)
+            .simultaneousGesture(TapGesture().onEnded { dismissKeyboard() })
             .navigationTitle("Comments")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

@@ -54,6 +54,8 @@ struct MentionComposer: View {
     let members: [OrgMember]
     let onSend: () -> Void
 
+    @FocusState private var isFocused: Bool
+
     private var suggestions: [OrgMember] {
         guard let query = MentionSupport.activeQuery(in: text) else { return [] }
         return MentionSupport.suggestions(for: query, members: members)
@@ -90,9 +92,12 @@ struct MentionComposer: View {
                 TextField("Add a comment — @ to mention", text: $text, axis: .vertical)
                     .lineLimit(1...4)
                     .textFieldStyle(.plain)
+                    .focused($isFocused)
 
                 Button {
                     onSend()
+                    // Drop the keyboard once the comment is on its way.
+                    isFocused = false
                 } label: {
                     Image(systemName: "arrow.up.circle.fill")
                         .font(.title2)
@@ -103,5 +108,15 @@ struct MentionComposer: View {
             .padding(.vertical, 10)
         }
         .background(.bar)
+    }
+}
+
+extension View {
+    /// Resigns the current first responder, dropping the keyboard. Used to
+    /// dismiss the `MentionComposer` when the user taps outside the field.
+    func dismissKeyboard() {
+        UIApplication.shared.sendAction(
+            #selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil
+        )
     }
 }

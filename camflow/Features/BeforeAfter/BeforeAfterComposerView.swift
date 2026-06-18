@@ -15,16 +15,9 @@ struct BeforeAfterComposerView: View {
         case after
     }
 
-    private enum PreviewMode: Hashable {
-        case layout
-        case slider
-    }
-
     @State private var beforePhoto: Photo?
     @State private var afterPhoto: Photo?
     @State private var layout: BeforeAfterPair.Layout = .sideBySide
-    @State private var previewMode: PreviewMode = .layout
-    @State private var sliderPosition: CGFloat = 0.5
     @State private var pickingSlot: Slot?
     @State private var beforeImage: UIImage?
     @State private var afterImage: UIImage?
@@ -41,21 +34,12 @@ struct BeforeAfterComposerView: View {
                 slotButtons
 
                 if bothSelected {
-                    Picker("Preview", selection: $previewMode) {
-                        Text("Layout").tag(PreviewMode.layout)
-                        Text("Slider").tag(PreviewMode.slider)
+                    Picker("Arrangement", selection: $layout) {
+                        Label("Side by Side", systemImage: "rectangle.split.2x1").tag(BeforeAfterPair.Layout.sideBySide)
+                        Label("Stacked", systemImage: "rectangle.split.1x2").tag(BeforeAfterPair.Layout.stacked)
                     }
                     .pickerStyle(.segmented)
                     .padding(.horizontal)
-
-                    if previewMode == .layout {
-                        Picker("Arrangement", selection: $layout) {
-                            Label("Side by Side", systemImage: "rectangle.split.2x1").tag(BeforeAfterPair.Layout.sideBySide)
-                            Label("Stacked", systemImage: "rectangle.split.1x2").tag(BeforeAfterPair.Layout.stacked)
-                        }
-                        .pickerStyle(.segmented)
-                        .padding(.horizontal)
-                    }
 
                     preview
                         .padding(.horizontal)
@@ -154,19 +138,14 @@ struct BeforeAfterComposerView: View {
     @ViewBuilder
     private var preview: some View {
         if let beforeImage, let afterImage {
-            if previewMode == .slider {
-                SliderCompareView(before: beforeImage, after: afterImage, position: $sliderPosition)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-            } else {
-                BeforeAfterCompositeView(
-                    before: beforeImage,
-                    beforeShapes: shapes(of: beforePhoto),
-                    after: afterImage,
-                    afterShapes: shapes(of: afterPhoto),
-                    layout: layout
-                )
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-            }
+            BeforeAfterCompositeView(
+                before: beforeImage,
+                beforeShapes: shapes(of: beforePhoto),
+                after: afterImage,
+                afterShapes: shapes(of: afterPhoto),
+                layout: layout
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 12))
         } else {
             ProgressView()
                 .frame(maxWidth: .infinity, minHeight: 200)
@@ -335,61 +314,3 @@ struct BeforeAfterCompositeView: View {
     }
 }
 
-/// Interactive compare: drag the divider to wipe between before and after.
-struct SliderCompareView: View {
-    let before: UIImage
-    let after: UIImage
-    @Binding var position: CGFloat
-
-    var body: some View {
-        GeometryReader { geometry in
-            let width = geometry.size.width
-            ZStack(alignment: .leading) {
-                Image(uiImage: before)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: width, height: geometry.size.height)
-                    .clipped()
-
-                Image(uiImage: after)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: width, height: geometry.size.height)
-                    .clipped()
-                    .mask(alignment: .leading) {
-                        Rectangle().frame(width: width * position)
-                    }
-
-                Rectangle()
-                    .fill(.white)
-                    .frame(width: 2)
-                    .shadow(radius: 2)
-                    .overlay {
-                        Circle()
-                            .fill(.white)
-                            .frame(width: 28, height: 28)
-                            .overlay {
-                                Image(systemName: "arrow.left.and.right")
-                                    .font(.caption.bold())
-                                    .foregroundStyle(.black)
-                            }
-                    }
-                    .offset(x: width * position - 1)
-            }
-            .overlay(alignment: .topLeading) {
-                BadgeLabel(text: "AFTER").padding(8)
-            }
-            .overlay(alignment: .topTrailing) {
-                BadgeLabel(text: "BEFORE").padding(8)
-            }
-            .contentShape(Rectangle())
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { value in
-                        position = min(max(value.location.x / width, 0.02), 0.98)
-                    }
-            )
-        }
-        .aspectRatio(4.0 / 3.0, contentMode: .fit)
-    }
-}

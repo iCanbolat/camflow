@@ -5,6 +5,7 @@ import SwiftUI
 /// bytes are available yet, the placeholder reflects the server processing state.
 struct PhotoCell: View {
     let photo: Photo
+    var showAuthor: Bool = true
 
     @Environment(AppServices.self) private var services
     @State private var thumbnail: UIImage?
@@ -55,7 +56,7 @@ struct PhotoCell: View {
                 }
             }
             .overlay(alignment: .bottomTrailing) {
-                if let author = photo.author {
+                if showAuthor, let author = photo.author {
                     MemberAvatar(member: author, size: 20)
                         .overlay { Circle().strokeBorder(.white.opacity(0.85), lineWidth: 1) }
                         .padding(4)

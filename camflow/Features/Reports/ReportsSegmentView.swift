@@ -51,6 +51,7 @@ struct ReportsSegmentView: View {
                                 .foregroundStyle(.secondary)
                             }
                         }
+                        .foregroundStyle(.primary)
                     }
                     .onDelete { offsets in
                         let store = ReportStore(context: modelContext)

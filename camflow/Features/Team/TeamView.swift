@@ -93,11 +93,7 @@ struct TeamView: View {
                     if !teamMembers.isEmpty {
                         Text("Members")
                     }
-                } footer: {
-                    if !teamMembers.isEmpty {
-                        Text("Standard members can only see projects they're assigned to; other roles see all organization projects. Project assignment also drives tasks and notifications. Invited members join by opening their invite link.")
-                    }
-                }
+                } 
             }
             .navigationTitle("Team")
             .toolbar {
@@ -336,6 +332,7 @@ struct MemberEditorSheet: View {
                                         }
                                     }
                                 }
+                                .foregroundStyle(.primary)
                             }
                         }
                     } header: {

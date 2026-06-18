@@ -1,6 +1,5 @@
 import SwiftUI
 import SwiftData
-import UIKit
 
 /// Shown right after inviting a member (and via "Share Invite Link" on
 /// invited rows): the invite link plus quick share actions. The code is
@@ -13,7 +12,6 @@ struct InviteShareSheet: View {
     @Environment(AppServices.self) private var services
 
     @State private var link: InviteLink?
-    @State private var didCopy = false
     @State private var errorMessage: String?
 
     private var organizationName: String {
@@ -25,15 +23,6 @@ struct InviteShareSheet: View {
         return String(
             localized: "Join \(organizationName) on CamFlow: \(link.universalURL.absoluteString) — invite code \(link.code)"
         )
-    }
-
-    private var whatsAppURL: URL? {
-        guard link != nil,
-              let encoded = shareMessage.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-              let url = URL(string: "whatsapp://send?text=\(encoded)"),
-              let probe = URL(string: "whatsapp://"),
-              UIApplication.shared.canOpenURL(probe) else { return nil }
-        return url
     }
 
     var body: some View {
@@ -73,28 +62,8 @@ struct InviteShareSheet: View {
                     }
 
                     Section {
-                        Button {
-                            UIPasteboard.general.url = link.universalURL
-                            didCopy = true
-                            Task {
-                                try? await Task.sleep(for: .seconds(2))
-                                didCopy = false
-                            }
-                        } label: {
-                            Label(
-                                didCopy ? String(localized: "Copied!") : String(localized: "Copy Link"),
-                                systemImage: didCopy ? "checkmark" : "link"
-                            )
-                        }
-
-                        if let whatsAppURL {
-                            Link(destination: whatsAppURL) {
-                                Label("Share via WhatsApp", systemImage: "message")
-                            }
-                        }
-
                         ShareLink(item: link.universalURL, message: Text(shareMessage)) {
-                            Label("More…", systemImage: "square.and.arrow.up")
+                            Label("Share Invite Link", systemImage: "square.and.arrow.up")
                         }
                     }
                 } else if let errorMessage {

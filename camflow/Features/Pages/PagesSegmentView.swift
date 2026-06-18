@@ -37,6 +37,7 @@ struct PagesSegmentView: View {
                         } label: {
                             pageRow(page)
                         }
+                        .foregroundStyle(.primary)
                     }
                     .onDelete { offsets in
                         let store = PageStore(context: modelContext)
@@ -132,6 +133,7 @@ struct PageTemplateChooser: View {
                         }
                     }
                 }
+                .foregroundStyle(.primary)
             }
             .navigationTitle("New Page")
             .navigationBarTitleDisplayMode(.inline)
